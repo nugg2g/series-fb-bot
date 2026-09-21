@@ -129,18 +129,31 @@ class ReelUploadEngine:
             auto_watch = self.config.get("auto_watch_new_files", True)
 
             current_schedule_time = datetime.now() + timedelta(hours=1)
+            # Round-Robin: ສະຫຼັບກຸ່ມເທື່ອລະກຸ່ມ (ກຸ່ມ1 → ກຸ່ມ2 → ກຸ່ມ1 → ...)
             total_uploaded_in_session = 0
+            current_group_index = 0
 
             while self._is_running:
                 groups = self._get_execution_groups()
-                any_video_processed = False
+                if not groups:
+                    break
 
-                for g_idx, group in enumerate(groups, start=1):
+                # Round-Robin: ລອງແຕ່ລະກຸ່ມເລີ່ມຈາກ current_group_index
+                any_video_processed = False
+                tried_count = 0
+
+                while tried_count < len(groups):
                     if not self._is_running:
                         break
 
-                    g_id = group.get("group_id", f"group_{g_idx}")
-                    g_name = group.get("group_name", f"Group {g_idx}")
+                    g_idx = current_group_index % len(groups)
+                    group = groups[g_idx]
+                    # ເລື່ອນໄປກຸ່ມຖັດໄປສຳລັບຮອບໜ້າ
+                    current_group_index = (current_group_index + 1) % len(groups)
+                    tried_count += 1
+
+                    g_id = group.get("group_id", f"group_{g_idx+1}")
+                    g_name = group.get("group_name", f"Group {g_idx+1}")
                     g_content_type = group.get("content_type", "china_drama" if g_id != "group_dedicated_1page" else "lao_girl_khaohom")
                     g_folder = group.get("video_folder", self.config.get("video_folder", "./videos"))
                     g_completed = group.get("completed_folder", self.config.get("completed_folder", "./completed"))
@@ -163,7 +176,7 @@ class ReelUploadEngine:
                     if not pending_videos:
                         continue
 
-                    # Process the first available video for this group
+                    # Found a video for this group - process it
                     video_path = pending_videos[0]
                     filename = os.path.basename(video_path)
 
@@ -353,7 +366,7 @@ class ReelUploadEngine:
                                     break
                             time.sleep(1)
 
-                    # Break inner group loop to re-evaluate groups fresh
+                    # Break inner tried loop - go back to main while loop
                     break
 
                 if not any_video_processed:
