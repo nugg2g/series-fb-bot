@@ -1,0 +1,13 @@
+services:
+  - type: web
+    name: reels-bot-mobile-dashboard
+    env: python
+    buildCommand: pip install -r requirements-web.txt
+    startCommand: gunicorn web_server:app --bind 0.0.0.0:$PORT --workers 1 --threads 4 --timeout 120
+    envVars:
+      - key: PORT
+        value: 10000
+      - key: ACCESS_PIN
+        value: "8888"
+      - key: SYNC_SECRET_TOKEN
+        value: "b0015017e92db8567376789a3d0c12b0"

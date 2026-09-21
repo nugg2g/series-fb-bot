@@ -1,0 +1,54 @@
+# Python cache & temporary files
+__pycache__/
+*.py[cod]
+*$py.class
+*.spec
+
+# Critical Secrets & Credentials (DO NOT COMMIT!)
+config.json
+cookies.json
+*.cookies
+token.json
+.env
+.env.*
+*.pem
+*.key
+
+# Browser Sessions & Login Profiles (Contains FB Login cookies)
+user_profile/
+webengine_profile/
+
+# History & State
+history.json
+history_*.json
+
+# Media & Folders
+*.mp4
+*.mov
+*.mkv
+*.avi
+*.wmv
+*.flv
+*.jpg
+*.jpeg
+*.png
+!app_icon.ico
+completed/
+failed/
+videos/
+cta_images/
+test_ai_gen.jpg
+
+# Logs & Screenshots
+logs/
+*.log
+screenshots/
+
+# Tools & Windows executables
+*.exe
+tools/
+
+# Virtual environments
+.venv
+env/
+venv/

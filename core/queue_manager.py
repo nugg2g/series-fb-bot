@@ -1,0 +1,393 @@
+import os
+import json
+import shutil
+from datetime import datetime
+from typing import List, Dict, Any, Optional, Tuple
+
+from core.utils import compute_file_hash
+
+class QueueManager:
+    VIDEO_EXTENSIONS = ('.mp4', '.mov', '.mkv', '.avi', '.webm', '.flv', '.wmv')
+    IMAGE_EXTENSIONS = ('.jpg', '.jpeg', '.png', '.webp')
+    SUPPORTED_EXTENSIONS = VIDEO_EXTENSIONS + IMAGE_EXTENSIONS
+
+    @staticmethod
+    def is_image_file(file_path: str) -> bool:
+        return file_path.lower().endswith(QueueManager.IMAGE_EXTENSIONS)
+
+    @staticmethod
+    def is_video_file(file_path: str) -> bool:
+        return file_path.lower().endswith(QueueManager.VIDEO_EXTENSIONS)
+
+    @staticmethod
+    def find_companion_text_file(media_path: str) -> Optional[str]:
+        """
+        Finds a companion .txt file for a given video or photo.
+        Checks:
+        1. same_name.txt (e.g. clip1.mp4 -> clip1.txt or photo1.jpg -> photo1.txt)
+        2. same_name.caption.txt
+        3. same_name_caption.txt
+        """
+        base_no_ext, _ = os.path.splitext(media_path)
+        candidates = [
+            f"{base_no_ext}.txt",
+            f"{base_no_ext}.caption.txt",
+            f"{base_no_ext}_caption.txt"
+        ]
+        for c in candidates:
+            if os.path.exists(c):
+                return c
+        return None
+
+    def __init__(self, config: Dict[str, Any]):
+        self.config = config
+        project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+        def resolve_p(val, default_sub):
+            p = val if val else default_sub
+            if not os.path.isabs(p):
+                return os.path.abspath(os.path.join(project_root, p))
+            return os.path.abspath(p)
+
+        self.video_folder = resolve_p(config.get("video_folder"), "./videos")
+        self.completed_folder = resolve_p(config.get("completed_folder"), "./completed")
+        self.failed_folder = resolve_p(config.get("failed_folder"), "./failed")
+        self.history_file = resolve_p(config.get("history_file"), "./history.json")
+        self.move_completed = config.get("move_completed_videos", True)
+
+        self._ensure_directories()
+        self.history = self._load_history()
+        self._hash_cache = {}
+
+    def _ensure_directories(self):
+        for folder in [self.video_folder, self.completed_folder, self.failed_folder]:
+            if folder and not os.path.exists(folder):
+                try:
+                    os.makedirs(folder, exist_ok=True)
+                except Exception as e:
+                    print(f"[QueueManager] Warning creating {folder}: {e}")
+
+    def _load_history(self) -> Dict[str, Any]:
+        """
+        Loads history and ensures both 'files' and 'hashes' dictionaries exist
+        for bulletproof anti-duplicate verification.
+        """
+        if os.path.exists(self.history_file):
+            try:
+                with open(self.history_file, 'r', encoding='utf-8') as f:
+                    data = json.load(f)
+                    # Migrate older flat structure if necessary
+                    if "files" not in data and "hashes" not in data:
+                        migrated = {"files": {}, "hashes": {}}
+                        for fname, rec in data.items():
+                            migrated["files"][fname] = rec
+                            f_hash = rec.get("file_hash")
+                            if f_hash:
+                                migrated["hashes"][f_hash] = rec
+                        return migrated
+                    return data
+            except Exception as e:
+                print(f"[QueueManager] Error loading history.json: {e}")
+                return {"files": {}, "hashes": {}}
+        return {"files": {}, "hashes": {}}
+
+    def _save_history(self):
+        try:
+            with open(self.history_file, 'w', encoding='utf-8') as f:
+                json.dump(self.history, f, ensure_ascii=False, indent=2)
+        except Exception as e:
+            print(f"[QueueManager] Error saving history.json: {e}")
+
+    _GLOBAL_HASH_CACHE: Dict[Tuple[str, float, int], str] = {}
+
+    def get_hash(self, video_path: str) -> str:
+        """Returns cached or computed file hash using global (path, mtime, size) cache"""
+        if not os.path.exists(video_path):
+            return ""
+        try:
+            mtime = os.path.getmtime(video_path)
+            size = os.path.getsize(video_path)
+            key = (video_path, mtime, size)
+            if key in QueueManager._GLOBAL_HASH_CACHE:
+                return QueueManager._GLOBAL_HASH_CACHE[key]
+            h = compute_file_hash(video_path)
+            QueueManager._GLOBAL_HASH_CACHE[key] = h
+            return h
+        except Exception:
+            return ""
+
+    def scan_videos(self, target_folder: Optional[str] = None) -> List[str]:
+        """Scans the specified or default video folder and returns all supported video file paths sorted by name"""
+        folder = target_folder or self.video_folder
+        if not folder or not os.path.exists(folder):
+            return []
+
+        videos = []
+        for root, _, files in os.walk(folder):
+            for file in files:
+                if file.lower().endswith(self.SUPPORTED_EXTENSIONS):
+                    full_path = os.path.join(root, file)
+                    videos.append(full_path)
+
+        videos.sort()
+        return videos
+
+    def is_already_uploaded(self, video_path: str, completed_folder: Optional[str] = None) -> Tuple[bool, str]:
+        """
+        High-speed multi-layer anti-duplicate check:
+        1. Checks filename in history (Instant O(1), zero disk read!).
+        2. Checks if matching file already exists in completed folder (Fast stat check).
+        3. Checks digital fingerprint (SHA-256 hash) only if needed.
+        
+        Returns: (is_duplicate: bool, reason: str)
+        """
+        if not os.path.exists(video_path):
+            return False, "File not found"
+
+        basename = os.path.basename(video_path)
+        files_map = self.history.get("files", {})
+        hashes_map = self.history.get("hashes", {})
+
+        # 1. Check filename in history (Instant O(1) in-memory lookup)
+        if basename in files_map:
+            rec = files_map[basename]
+            if rec.get("status") == "success":
+                return True, f"ຊື່ໄຟລ໌ຊ້ຳ (ຊື່ '{basename}' ເຄີຍອັບໂຫຼດສຳເລັດແລ້ວ)"
+
+        # 2. Check if identical file exists in completed directory (Fast metadata check)
+        c_folder = completed_folder or self.completed_folder
+        if c_folder and os.path.exists(c_folder):
+            completed_dest = os.path.join(c_folder, basename)
+            if os.path.exists(completed_dest):
+                try:
+                    if os.path.getsize(completed_dest) == os.path.getsize(video_path):
+                        return True, f"ໄຟລ໌ມີຢູ່ແລ້ວໃນໂຟນເດີ completed ('{basename}')"
+                except Exception:
+                    pass
+
+        # 3. Check digital content hash (cached in memory)
+        f_hash = self.get_hash(video_path)
+        if f_hash and f_hash in hashes_map:
+            rec = hashes_map[f_hash]
+            if rec.get("status") == "success":
+                orig_name = rec.get("filename", basename)
+                return True, f"ໄຟລ໌ຊ້ຳ (ເນື້ອຫາວິດີໂອຄືກັບ '{orig_name}' ທີ່ເຄີຍອັບໂຫຼດແລ້ວ)"
+
+        return False, "ລໍຖ້າອັບໂຫຼດ (Pending)"
+
+    def get_pending_videos(self, target_folder: Optional[str] = None, completed_folder: Optional[str] = None) -> List[str]:
+        """
+        Returns list of video paths that are guaranteed NOT uploaded yet.
+        Strictly filters out any duplicates by hash or name.
+        """
+        all_videos = self.scan_videos(target_folder=target_folder)
+        pending = []
+        for v in all_videos:
+            is_dup, _ = self.is_already_uploaded(v, completed_folder=completed_folder)
+            if not is_dup:
+                pending.append(v)
+        return pending
+
+    def mark_completed(self, video_path: str, meta: Optional[Dict[str, Any]] = None, custom_dest_folder: Optional[str] = None):
+        """
+        Marks video as successfully uploaded, records both filename and SHA-256 hash,
+        and optionally moves file to completed folder.
+        """
+        basename = os.path.basename(video_path)
+        f_hash = self.get_hash(video_path)
+        record = {
+            "filename": basename,
+            "original_path": video_path,
+            "file_hash": f_hash,
+            "file_size": os.path.getsize(video_path) if os.path.exists(video_path) else 0,
+            "status": "success",
+            "uploaded_at": datetime.now().isoformat(),
+            "meta": meta or {}
+        }
+
+        if "files" not in self.history:
+            self.history["files"] = {}
+        if "hashes" not in self.history:
+            self.history["hashes"] = {}
+
+        self.history["files"][basename] = record
+        if f_hash:
+            self.history["hashes"][f_hash] = record
+        self._save_history()
+
+        dest_dir = custom_dest_folder or self.completed_folder
+        if dest_dir:
+            os.makedirs(dest_dir, exist_ok=True)
+
+        if self.move_completed and os.path.exists(video_path) and dest_dir:
+            try:
+                # Find companion .txt before moving original media file
+                txt_comp = self.find_companion_text_file(video_path)
+
+                dest = os.path.join(dest_dir, basename)
+                if os.path.exists(dest):
+                    name, ext = os.path.splitext(basename)
+                    dest = os.path.join(dest_dir, f"{name}_{int(datetime.now().timestamp())}{ext}")
+                shutil.move(video_path, dest)
+                print(f"[QueueManager] Moved {basename} to completed folder: {dest_dir}")
+
+                # Also move companion .txt if present
+                if txt_comp and os.path.exists(txt_comp):
+                    t_base = os.path.basename(txt_comp)
+                    t_dest = os.path.join(dest_dir, t_base)
+                    if os.path.exists(t_dest):
+                        t_name, t_ext = os.path.splitext(t_base)
+                        t_dest = os.path.join(dest_dir, f"{t_name}_{int(datetime.now().timestamp())}{t_ext}")
+                    shutil.move(txt_comp, t_dest)
+                    print(f"[QueueManager] Moved companion caption file {t_base} to: {dest_dir}")
+            except Exception as e:
+                print(f"[QueueManager] Could not move {basename} to completed: {e}")
+
+    def mark_failed(self, video_path: str, error_message: str, custom_failed_folder: Optional[str] = None):
+        """Marks video as failed in history and optionally moves to failed folder"""
+        basename = os.path.basename(video_path)
+        f_hash = self.get_hash(video_path)
+        record = {
+            "filename": basename,
+            "original_path": video_path,
+            "file_hash": f_hash,
+            "status": "failed",
+            "last_attempt": datetime.now().isoformat(),
+            "error": str(error_message)
+        }
+        if "files" not in self.history:
+            self.history["files"] = {}
+        self.history["files"][basename] = record
+        self._save_history()
+
+        failed_dir = custom_failed_folder or self.failed_folder
+        if failed_dir and os.path.exists(video_path):
+            try:
+                txt_comp = self.find_companion_text_file(video_path)
+                os.makedirs(failed_dir, exist_ok=True)
+                dest = os.path.join(failed_dir, basename)
+                if os.path.exists(dest):
+                    name, ext = os.path.splitext(basename)
+                    dest = os.path.join(failed_dir, f"{name}_{int(datetime.now().timestamp())}{ext}")
+                shutil.move(video_path, dest)
+
+                # Also move companion .txt to failed folder if present
+                if txt_comp and os.path.exists(txt_comp):
+                    t_base = os.path.basename(txt_comp)
+                    t_dest = os.path.join(failed_dir, t_base)
+                    shutil.move(txt_comp, t_dest)
+            except Exception:
+                pass
+
+    def get_stats(self, target_folder: Optional[str] = None, completed_folder: Optional[str] = None) -> Dict[str, int]:
+        all_videos = self.scan_videos(target_folder=target_folder)
+        pending = self.get_pending_videos(target_folder=target_folder, completed_folder=completed_folder)
+        files_map = self.history.get("files", {})
+        success_count = sum(1 for r in files_map.values() if r.get("status") == "success")
+        failed_count = sum(1 for r in files_map.values() if r.get("status") == "failed")
+        duplicates_count = len(all_videos) - len(pending)
+        return {
+            "total_in_folder": len(all_videos),
+            "pending_in_folder": len(pending),
+            "duplicates_in_folder": max(0, duplicates_count),
+            "total_uploaded": success_count,
+            "total_failed": failed_count
+        }
+
+    def restore_completed_videos(self) -> int:
+        """
+        Restores all files from completed_folder back to video_folder,
+        and resets their status in history.json to 'pending' (removing duplicate locks).
+        Returns number of restored videos.
+        """
+        if not os.path.exists(self.completed_folder):
+            return 0
+
+        restored_count = 0
+        completed_files = [f for f in os.listdir(self.completed_folder) if f.lower().endswith(self.SUPPORTED_EXTENSIONS)]
+
+        files_map = self.history.get("files", {})
+        hashes_map = self.history.get("hashes", {})
+
+        for fname in completed_files:
+            src = os.path.join(self.completed_folder, fname)
+            dest = os.path.join(self.video_folder, fname)
+
+            try:
+                # If destination already exists with same name, resolve conflict
+                if os.path.exists(dest):
+                    if os.path.getsize(dest) == os.path.getsize(src):
+                        os.remove(src)
+                    else:
+                        base, ext = os.path.splitext(fname)
+                        dest = os.path.join(self.video_folder, f"{base}_restored{ext}")
+                        shutil.move(src, dest)
+                else:
+                    shutil.move(src, dest)
+
+                restored_count += 1
+            except Exception as e:
+                print(f"[QueueManager] Warning moving {fname} to {dest}: {e}")
+
+            # Reset history record to pending so it will not be blocked as duplicate
+            if fname in files_map:
+                files_map[fname]["status"] = "pending"
+                files_map[fname]["restored_at"] = datetime.now().isoformat()
+                f_hash = files_map[fname].get("file_hash")
+                if f_hash and f_hash in hashes_map:
+                    del hashes_map[f_hash]
+
+        self._save_history()
+        self._hash_cache.clear()
+        print(f"[QueueManager] Successfully restored {restored_count} videos back to {self.video_folder}.")
+        return restored_count
+
+    def update_video_history(self, filename: str, new_title: str, new_caption: str, new_status: Optional[str] = None, requeue: bool = False) -> bool:
+        """
+        Updates title, caption, and optional status of a video in history.
+        If requeue is True or new_status is 'pending', resets hash duplicate locks
+        and moves file back to video folder if it was in completed folder.
+        """
+        files_map = self.history.get("files", {})
+        if filename not in files_map:
+            files_map[filename] = {
+                "filename": filename,
+                "title": new_title,
+                "caption": new_caption,
+                "status": "pending" if requeue else (new_status or "pending"),
+                "meta": {
+                    "title": new_title,
+                    "caption": new_caption
+                }
+            }
+        else:
+            rec = files_map[filename]
+            rec["title"] = new_title
+            rec["caption"] = new_caption
+            if "meta" not in rec or not isinstance(rec["meta"], dict):
+                rec["meta"] = {}
+            rec["meta"]["title"] = new_title
+            rec["meta"]["caption"] = new_caption
+            
+            target_status = "pending" if requeue else (new_status or rec.get("status", "pending"))
+            rec["status"] = target_status
+            
+            if requeue or target_status == "pending":
+                f_hash = rec.get("file_hash")
+                if f_hash and f_hash in self.history.get("hashes", {}):
+                    del self.history["hashes"][f_hash]
+
+        effective_status = "pending" if requeue else (new_status or files_map[filename].get("status"))
+        # If marked as pending or requeue, check if file is in completed folder and move back to video_folder
+        if effective_status == "pending":
+            c_path = os.path.join(self.completed_folder, filename)
+            v_path = os.path.join(self.video_folder, filename)
+            if os.path.exists(c_path) and not os.path.exists(v_path):
+                try:
+                    shutil.move(c_path, v_path)
+                except Exception as e:
+                    print(f"[QueueManager] Warning moving {filename} back: {e}")
+
+        self._save_history()
+        self._hash_cache.clear()
+        return True

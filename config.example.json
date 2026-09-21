@@ -1,0 +1,131 @@
+{
+  "video_folder": "./videos",
+  "completed_folder": "./completed",
+  "failed_folder": "./failed",
+  "history_file": "./history.json",
+  "external_env_dir": "G:/PG/API",
+  "page_name": "ซี่รีย์จีน เต็มเรื่อง",
+  "page_id": "YOUR_FACEBOOK_PAGE_ID",
+  "target_pages": [
+    {
+      "page_name": "ซี่รีย์จีน เต็มเรื่อง",
+      "page_id": "YOUR_FACEBOOK_PAGE_ID"
+    }
+  ],
+  "page_groups": [
+    {
+      "group_id": "group_shared_3pages",
+      "group_name": "ກຸ່ມ 3 Pages (ເນື້ອຫາຮ່ວມກັນ)",
+      "content_type": "china_drama",
+      "video_folder": "./videos/shared",
+      "completed_folder": "./completed/shared",
+      "failed_folder": "./failed/shared",
+      "title_prefix": "[เต็มเรื่อง] ",
+      "caption_template": "🎬 {title}\n\n🔥 ซีรีส์สั้นจีน AI ดราม่าเข้มข้น สุดมันส์!\n📌 ติดตามเรื่องใหม่ๆ ได้ทุกวัน อย่าลืมกด Like & Share เพื่อเป็นกำลังใจให้ด้วยนะครับ! ✨\n\n{tags}",
+      "hashtag_pool": [
+        "#หนังสั้นจีน",
+        "#ซีรีส์จีน",
+        "#ละครสั้น",
+        "#chinaai",
+        "#chinesedrama",
+        "#reelsdrama",
+        "#aiart",
+        "#หนังจีน",
+        "#reels",
+        "#fyp",
+        "#viral",
+        "#reelsfb"
+      ],
+      "pages": [
+        {
+          "page_name": "Page 1",
+          "page_id": "YOUR_PAGE_ID_1"
+        },
+        {
+          "page_name": "Page 2",
+          "page_id": ""
+        },
+        {
+          "page_name": "Page 3",
+          "page_id": ""
+        }
+      ]
+    },
+    {
+      "group_id": "group_dedicated_1page",
+      "group_name": "ກຸ່ມ 1 Page (ນ້ອງເຂົ້າຫອມ ສາວຂີ້ດື້)",
+      "content_type": "lao_girl_khaohom",
+      "video_folder": "./videos/dedicated",
+      "completed_folder": "./completed/dedicated",
+      "failed_folder": "./failed/dedicated",
+      "title_prefix": "",
+      "caption_template": "✨ {title}\n\n💖 น้องข้าวหอม สาวขี้ดื้อ มาแจกความสดใสแล้วค่าา~ ฝากกด Like & Share และติดตามเป็นกำลังใจให้หนูด้วยน้าา 💕✨\n\n{tags}",
+      "hashtag_pool": [
+        "#น้องข้าวหอม",
+        "#สาวขี้ดื้อ",
+        "#สาวลาวน่ารัก",
+        "#ชุดนักเรียน",
+        "#สาวหวาน",
+        "#น่ารักสดใส",
+        "#laogirl",
+        "#reels",
+        "#fyp",
+        "#viral",
+        "#reelsfb"
+      ],
+      "pages": [
+        {
+          "page_name": "น້ອງເຂົ້າຫອມ ສາວຂີ້ດື້",
+          "page_id": ""
+        }
+      ]
+    }
+  ],
+  "min_delay_seconds": 180,
+  "max_delay_seconds": 360,
+  "post_mode": "now",
+  "delay_between_posts_minutes": 20,
+  "randomize_delay": true,
+  "delay_min_minutes": 15,
+  "delay_max_minutes": 35,
+  "randomize_schedule": true,
+  "schedule_jitter_minutes": 20,
+  "headless": true,
+  "browser_type": "chromium",
+  "target_user_id": "",
+  "add_episode_number": false,
+  "caption_template": "🎬 {title}\n\n🔥 ซีรีส์สั้นจีน AI ดราม่าเข้มข้น สุดมันส์!\n📌 ติดตามเรื่องใหม่ๆ ได้ทุกวัน อย่าลืมกด Like & Share เพื่อเป็นกำลังใจให้ด้วยนะครับ! ✨\n\n{tags}",
+  "title_mode": "filename_clean",
+  "tags_count": 10,
+  "move_completed_videos": true,
+  "mark_as_ai_content": true,
+  "ai_caption": {
+    "enabled": true,
+    "api_key": "YOUR_GEMINI_API_KEY_HERE",
+    "model": "gemini-3.6-flash",
+    "prompt_instructions": "Analyze the cover image and create catchy Thai drama caption."
+  },
+  "auto_watch_new_files": true,
+  "strict_page_guard": true,
+  "cta_post_enabled": true,
+  "cta_post_interval_reels": 5,
+  "cta_images_folder": "./cta_images",
+  "web_monitor": {
+    "enabled": true,
+    "port": 5555,
+    "enable_tunnel": true,
+    "cloud_relay_url": "",
+    "access_pin": "8888",
+    "sync_secret_token": "GENERATE_RANDOM_SECRET_TOKEN"
+  },
+  "whatsapp_notify": {
+    "enabled": false,
+    "phone": "+85620XXXXXXXX",
+    "apikey": ""
+  },
+  "telegram_notify": {
+    "enabled": false,
+    "bot_token": "",
+    "chat_id": ""
+  }
+}
