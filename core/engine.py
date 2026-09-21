@@ -239,7 +239,6 @@ class ReelUploadEngine:
                             current_schedule_time += timedelta(hours=schedule_interval)
 
                     # Upload to each page in this group
-                    all_pages_succeeded = True
                     pages_results = []
 
                     for p_idx, page_info in enumerate(g_pages, start=1):
@@ -274,7 +273,6 @@ class ReelUploadEngine:
                             "success": page_success
                         })
                         if not page_success:
-                            all_pages_succeeded = False
                             self.log(f"⚠️ ການອັບໂຫຼດໄປຍັງ Page '{curr_page_name}' ບໍ່ສຳເລັດ.")
                         else:
                             self.log(f"✅ ອັບໂຫຼດໄປຍັງ Page '{curr_page_name}' ສຳເລັດຮຽບຮ້ອຍ!")
@@ -299,7 +297,11 @@ class ReelUploadEngine:
                                 time.sleep(1)
                             WEB_STATE.update(status="uploading")
 
-                    if all_pages_succeeded:
+                    succeeded_pages = [p for p in pages_results if p.get("success")]
+                    failed_pages = [p for p in pages_results if not p.get("success")]
+
+                    if not failed_pages:
+                        # ✅ ທຸກ Page ສຳເລັດ 100%
                         self.queue_mgr.mark_completed(
                             video_path,
                             meta={
@@ -314,20 +316,84 @@ class ReelUploadEngine:
                             custom_dest_folder=g_completed
                         )
                         self.log(f"🎉 ອັບໂຫຼດສຳເລັດຄົບທຸກ Page ({len(g_pages)} Pages) ໃນກຸ່ມ '{g_name}': {filename}")
-                        for p_res in pages_results:
-                            p_name = p_res.get("page_name", "")
-                            self.notifier.notify_upload_success(title, p_name)
+                        for p_res in succeeded_pages:
+                            self.notifier.notify_upload_success(title, p_res.get("page_name", ""))
+
+                    elif succeeded_pages:
+                        # ⚠️ ບາງ Page ສຳເລັດ ບາງ Page ລົ້ມເຫຼວ → Retry ສະເພາະ Page ທີ່ລົ້ມເຫຼວ
+                        self.log(f"\n⚠️ ອັບໂຫຼດສຳເລັດ {len(succeeded_pages)}/{len(g_pages)} Pages, ລົ້ມເຫຼວ {len(failed_pages)} Pages")
+                        for fp in failed_pages:
+                            self.log(f"   ❌ ລົ້ມເຫຼວ: '{fp.get('page_name', '')}' (ID: {fp.get('page_id', '')})")
+                        for sp in succeeded_pages:
+                            self.log(f"   ✅ ສຳເລັດ: '{sp.get('page_name', '')}'")
+                            self.notifier.notify_upload_success(title, sp.get("page_name", ""))
+
+                        # Retry ສະເພາະ Page ທີ່ລົ້ມເຫຼວ (ລອງອີກ 1 ຄັ້ງ)
+                        self.log(f"\n🔄 ກຳລັງ Retry ສະເພາະ {len(failed_pages)} Page ທີ່ລົ້ມເຫຼວ...")
+                        retry_delay = round(random.uniform(2, 5), 1)
+                        self.log(f"⏳ ພັກ {retry_delay} ນາທີ ກ່ອນ Retry...")
+                        for _s in range(int(retry_delay * 60)):
+                            if not self._is_running:
+                                break
+                            time.sleep(1)
+
+                        retry_results = []
+                        for fp in failed_pages:
+                            if not self._is_running:
+                                break
+                            fp_name = fp.get("page_name", "")
+                            fp_id = str(fp.get("page_id", ""))
+                            self.log(f"🔄 [Retry] ກຳລັງອັບໂຫຼດໄປຍັງ '{fp_name}' ອີກຄັ້ງ...")
+
+                            is_img = QueueManager.is_image_file(video_path)
+                            if is_img:
+                                retry_ok = uploader.upload_photo(video_path, caption, schedule_time=sched_dt, target_page=fp)
+                            else:
+                                retry_ok = uploader.upload_reel(video_path, caption, schedule_time=sched_dt, target_page=fp)
+
+                            retry_results.append({"page_name": fp_name, "page_id": fp_id, "success": retry_ok, "is_retry": True})
+                            if retry_ok:
+                                self.log(f"✅ [Retry] ອັບໂຫຼດໄປຍັງ '{fp_name}' ສຳເລັດແລ້ວ!")
+                                self.notifier.notify_upload_success(title, fp_name)
+                            else:
+                                self.log(f"❌ [Retry] ອັບໂຫຼດໄປຍັງ '{fp_name}' ລົ້ມເຫຼວອີກ.")
+                                self.notifier.notify_upload_failed(title, fp_name, "Retry failed")
+
+                        all_results = succeeded_pages + retry_results
+                        still_failed = [p for p in all_results if not p.get("success")]
+
+                        if not still_failed:
+                            # Retry ສຳເລັດທັງໝົດ → ຍ້າຍໄປ completed
+                            self.queue_mgr.mark_completed(
+                                video_path,
+                                meta={
+                                    "title": title, "caption": caption,
+                                    "group_id": g_id, "group_name": g_name,
+                                    "mode": post_mode,
+                                    "scheduled_time": sched_dt.isoformat() if sched_dt else None,
+                                    "target_pages": all_results
+                                },
+                                custom_dest_folder=g_completed
+                            )
+                            self.log(f"🎉 [Retry ສຳເລັດ] ອັບໂຫຼດຄົບທຸກ Page ແລ້ວ: {filename}")
+                        else:
+                            # ຍັງມີ Page ລົ້ມເຫຼວ → ບັນທຶກ partial success ແລະ ຍ້າຍໄປ failed
+                            self.queue_mgr.mark_failed(
+                                video_path,
+                                f"Partial upload: {len(succeeded_pages)+len([r for r in retry_results if r.get('success')])} OK, {len(still_failed)} FAILED: {[p.get('page_name') for p in still_failed]}",
+                                custom_failed_folder=g_failed
+                            )
+                            self.log(f"⚠️ ອັບໂຫຼດບໍ່ຄົບ: ສຳເລັດ {len(all_results)-len(still_failed)}/{len(g_pages)} Pages, ລົ້ມເຫຼວ: {[p.get('page_name') for p in still_failed]}")
                     else:
+                        # ❌ ທຸກ Page ລົ້ມເຫຼວ 100%
                         self.queue_mgr.mark_failed(
                             video_path,
-                            f"Upload failed on some pages: {pages_results}",
+                            f"All pages failed: {pages_results}",
                             custom_failed_folder=g_failed
                         )
-                        self.log(f"❌ ອັບໂຫຼດບໍ່ສົມບູນ (ບາງ Page ລົ້ມເຫຼວ): {filename}")
-                        for p_res in pages_results:
-                            if not p_res.get("success"):
-                                p_name = p_res.get("page_name", "")
-                                self.notifier.notify_upload_failed(title, p_name, p_res.get("error", "Unknown error"))
+                        self.log(f"❌ ອັບໂຫຼດລົ້ມເຫຼວທຸກ Page ({len(g_pages)} Pages): {filename}")
+                        for p_res in failed_pages:
+                            self.notifier.notify_upload_failed(title, p_res.get("page_name", ""), p_res.get("error", "Unknown error"))
 
                     # Follower CTA Photo Post trigger
                     cta_enabled = self.config.get("cta_post_enabled", True)
