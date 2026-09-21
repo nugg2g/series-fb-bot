@@ -267,8 +267,24 @@ class ReelUploadEngine:
                             self.log(f"✅ ອັບໂຫຼດໄປຍັງ Page '{curr_page_name}' ສຳເລັດຮຽບຮ້ອຍ!")
 
                         if p_idx < len(g_pages) and self._is_running:
-                            self.log("⏳ ພັກລໍຖ້າ 15 ວິນາທີ ກ່ອນເລີ່ມອັບໂຫຼດໄປຍັງ Page ຖັດໄປ...")
-                            time.sleep(15)
+                            page_delay_mins = round(random.uniform(3, 10), 1)
+                            page_delay_secs = int(page_delay_mins * 60)
+                            next_page = g_pages[p_idx] if p_idx < len(g_pages) else {}
+                            next_name = next_page.get("page_name", "Page ຖັດໄປ")
+                            self.log(f"⏳ ພັກລໍຖ້າ {page_delay_mins} ນາທີ ກ່ອນອັບໂຫຼດໄປຍັງ '{next_name}' (ສຸ່ມ 3-10 ນາທີ ເພື່ອປ້ອງກັນ Spam)...")
+                            WEB_STATE.update(status="waiting_page_delay", progress_text=f"ລໍຖ້າ {page_delay_mins} ນາທີ ກ່ອນ Page ຖັດໄປ")
+                            for _s in range(page_delay_secs):
+                                if not self._is_running:
+                                    break
+                                while self._is_paused:
+                                    time.sleep(1)
+                                    if not self._is_running:
+                                        break
+                                remaining = page_delay_secs - _s
+                                if remaining % 60 == 0 and remaining > 0:
+                                    self.log(f"⏳ ເຫຼືອອີກ {remaining // 60} ນາທີ ກ່ອນ Page ຖັດໄປ...")
+                                time.sleep(1)
+                            WEB_STATE.update(status="uploading")
 
                     if all_pages_succeeded:
                         self.queue_mgr.mark_completed(
