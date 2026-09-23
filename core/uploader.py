@@ -297,12 +297,11 @@ class ReelsUploader:
                     pass
 
             if not uploaded_via_input:
-                import re
                 add_photo_btn = (
-                    self.page.get_by_text(re.compile(r"Add photo|เพิ่มรูปภาพ|ເພີ່ມຮູບ", re.IGNORECASE)).or_(
-                        self.page.locator('button:has-text("photo"), div[role="button"]:has-text("photo")')
+                    self.page.locator('div[role="button"]:has-text("Add photo"), button:has-text("Add photo"), div:has-text("Add photo/video")').last.or_(
+                        self.page.get_by_text("เพิ่มรูปภาพ", exact=False)
                     ).or_(
-                        self.page.locator('button:has-text("รูปภาพ"), div[role="button"]:has-text("รูปภาพ")')
+                        self.page.get_by_text("ເພີ່ມຮູບ", exact=False)
                     ).first
                 )
                 if add_photo_btn.is_visible(timeout=7000):
@@ -321,13 +320,16 @@ class ReelsUploader:
                 else:
                     raise Exception("ບໍ່ພົບຊ່ອງທາງອັບໂຫຼດຮູບພາບໃນ Meta Business Suite Composer")
 
-            time.sleep(3)
+            time.sleep(4)
             self.dismiss_popups()
 
             # 4. Input Caption
             self.emit_progress(55, "ກຳລັງປ້ອນຂໍ້ຄວາມ Caption...")
             self.input_caption(caption)
             time.sleep(2)
+
+            # Verification screenshot showing both photo and caption in composer
+            self.save_screenshot(f"ready_to_publish_{os.path.splitext(filename)[0]}")
 
             # 5. Handle Schedule or Publish Now
             is_schedule = (self.config.get("post_mode") == "schedule" and schedule_time is not None)
@@ -475,28 +477,47 @@ class ReelsUploader:
         self.save_screenshot(f"page_mismatch_guard_{page_id or 'unknown'}")
         return False
 
+    def find_active_caption_editor(self):
+        """
+        Finds the true, visible contenteditable editor in Meta Business Suite Composer / Reels Composer.
+        Bypasses invisible/unmounted clones that Meta places at (0, 0) with width 0.
+        """
+        selectors = [
+            'div[contenteditable="true"][aria-label*="dialogue"]',
+            'div[contenteditable="true"][aria-label*="Describe your reel"]',
+            'div[contenteditable="true"][aria-label*="caption" i]',
+            'div[contenteditable="true"][aria-label*="คำอธิบาย"]',
+            'div[contenteditable="true"][aria-label*="ຄຳອະທິບາຍ"]',
+            'div[role="combobox"][contenteditable="true"]',
+            'div[role="textbox"][contenteditable="true"]',
+            'div[contenteditable="true"]',
+            '[data-lexical-editor="true"]',
+            'textarea'
+        ]
+        for sel in selectors:
+            loc = self.page.locator(sel)
+            cnt = loc.count()
+            for i in range(cnt):
+                el = loc.nth(i)
+                try:
+                    if el.is_visible(timeout=500):
+                        box = el.bounding_box()
+                        if box and box['width'] > 50 and box['height'] > 15:
+                            return el
+                except Exception:
+                    pass
+        return None
+
     def input_caption(self, caption: str):
         """
         Finds caption box and enters the text with full title, story, and hashtags.
-        Uses native Draft.js paste handling + clipboard + line-by-line fallback to ensure
-        the title and storyline are NEVER overwritten by hashtags, and auto-dismisses
-        Facebook's hashtag autocomplete popups.
+        Ensures both Reels Composer and Standard Post Composer receive full caption,
+        story, emojis, and hashtags without losing React/Lexical/Draft state.
         """
-        caption_selectors = [
-            'div[role="textbox"][contenteditable="true"]',
-            'div[contenteditable="true"][aria-label*="dialogue"]',
-            'div[contenteditable="true"][aria-label*="Describe your reel"]',
-            'div[contenteditable="true"][aria-label*="caption"]',
-            'div[contenteditable="true"][aria-label*="คำอธิบาย"]',
-            'div[contenteditable="true"][aria-label*="ຄຳອະທິບາຍ"]',
-            'div[contenteditable="true"][aria-label*="text" i]',
-            'div[contenteditable="true"][aria-label*="write" i]',
-            'div[data-lexical-editor="true"]',
-            'div[data-contents="true"]',
-            'div[role="textbox"]',
-            'div[contenteditable="true"]',
-            'textarea'
-        ]
+        if not caption:
+            return
+
+        first_line = caption.strip().split("\n")[0] if caption else ""
 
         # Grant clipboard permissions if possible
         try:
@@ -505,101 +526,54 @@ class ReelsUploader:
         except Exception:
             pass
 
-        first_line = caption.strip().split("\n")[0] if caption else ""
+        for attempt in range(3):
+            editor = self.find_active_caption_editor()
+            if not editor and attempt < 2:
+                time.sleep(1.5)
+                continue
 
-        # Try twice: once as-is, once after scrolling down
-        for attempt in range(2):
-            for sel in caption_selectors:
-                loc = self.page.locator(sel)
-                if loc.count() > 0:
-                    box = loc.first
-                    try:
-                        box.scroll_into_view_if_needed(timeout=2000)
-                    except Exception:
-                        pass
-                    if box.is_visible(timeout=2000):
-                        box.click()
-                        time.sleep(0.5)
-
-                        # Clear existing text cleanly
-                        self.page.keyboard.press("Control+A")
-                        self.page.keyboard.press("Backspace")
-                        self.page.keyboard.press("Escape")
-                        time.sleep(0.3)
-
-                success = False
-
-                # Strategy 1: DataTransfer ClipboardEvent 'paste' (Native Draft.js paste handler)
-                try:
-                    box.evaluate("""(el, text) => {
-                        el.focus();
-                        const dt = new DataTransfer();
-                        dt.setData('text/plain', text);
-                        const ev = new ClipboardEvent('paste', {
-                            clipboardData: dt,
-                            bubbles: true,
-                            cancelable: true
-                        });
-                        el.dispatchEvent(ev);
-                    }""", caption)
-                    time.sleep(0.8)
-                    self.page.keyboard.press("Escape")
-                    time.sleep(0.3)
-                    txt = box.inner_text() or ""
-                    if first_line and first_line in txt and len(txt) >= len(caption) * 0.7:
-                        success = True
-                except Exception as e:
-                    self.log(f"Warning DataTransfer paste: {e}")
-
-                # Strategy 2: Native clipboard paste (navigator.clipboard.writeText + Control+V)
-                if not success:
-                    try:
-                        self.page.evaluate("text => navigator.clipboard.writeText(text)", caption)
-                        box.click()
-                        self.page.keyboard.press("Control+A")
-                        self.page.keyboard.press("Control+v")
-                        time.sleep(0.8)
-                        self.page.keyboard.press("Escape")
-                        time.sleep(0.3)
-                        txt = box.inner_text() or ""
-                        if first_line and first_line in txt:
-                            success = True
-                    except Exception as e:
-                        self.log(f"Warning native clipboard paste: {e}")
-
-                # Strategy 3: Line-by-line typing with Shift+Enter
-                if not success:
-                    try:
-                        box.click()
-                        self.page.keyboard.press("Control+A")
-                        self.page.keyboard.press("Backspace")
-                        time.sleep(0.3)
-                        lines = caption.split("\n")
-                        for i, line in enumerate(lines):
-                            if line:
-                                self.page.keyboard.insert_text(line)
-                            if i < len(lines) - 1:
-                                self.page.keyboard.press("Shift+Enter")
-                                time.sleep(0.04)
-                        time.sleep(0.8)
-                        self.page.keyboard.press("Escape")
-                        time.sleep(0.3)
-                        success = True
-                    except Exception as e:
-                        self.log(f"Warning line-by-line insert: {e}")
-
-                # Verify final inserted text
-                final_text = box.inner_text() or ""
-                preview = final_text.replace('\n', ' ')[:70]
-                self.log(f"✍️ ป้อน Caption สำเร็จ ({len(final_text)} ตัวอักษร): {preview}...")
+            if not editor:
+                self.log("⚠️ ບໍ່ພົບຊ່ອງປ້ອນ Caption ທີ່ເປີດຢູ່ (Visible Caption Editor)")
                 return
 
-            if attempt == 0:
-                try:
-                    self.page.mouse.wheel(0, 400)
-                    time.sleep(1)
-                except Exception:
-                    pass
+            try:
+                editor.scroll_into_view_if_needed(timeout=3000)
+            except Exception:
+                pass
+
+            time.sleep(0.5)
+            editor.click()
+            time.sleep(0.5)
+
+            # Clear existing text cleanly
+            self.page.keyboard.press("Control+A")
+            self.page.keyboard.press("Backspace")
+            time.sleep(0.2)
+
+            # Insert text line-by-line via keyboard.insert_text (safest for Draft.js & Lexical)
+            lines = caption.split("\n")
+            for i, line in enumerate(lines):
+                if line:
+                    self.page.keyboard.insert_text(line)
+                if i < len(lines) - 1:
+                    self.page.keyboard.press("Shift+Enter")
+                    time.sleep(0.04)
+
+            time.sleep(1)
+            # Dismiss any hashtag autocomplete popup with Space
+            self.page.keyboard.press("Space")
+            time.sleep(0.5)
+
+            final_text = editor.inner_text() or ""
+            if first_line and first_line in final_text:
+                preview = final_text.replace('\n', ' ')[:70]
+                self.log(f"✍️ ປ້ອນ Caption ສຳເລັດ ({len(final_text)} ຕົວອັກສອນ): {preview}...")
+                return
+            elif len(final_text) > 10:
+                self.log(f"✍️ ປ້ອນ Caption ສຳເລັດ ({len(final_text)} ຕົວອັກສອນ)")
+                return
+
+        self.log("⚠️ ບໍ່ສາມາດຢືນຢັນ Caption ໃນ Editor ໄດ້ຄົບຖ້ວນ")
 
         raise Exception("ไม่พบช่องใส่ Caption/Description")
 

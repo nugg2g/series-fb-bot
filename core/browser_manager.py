@@ -145,6 +145,11 @@ class BrowserManager:
         else:
             self.page = self.context.new_page()
 
+        try:
+            self.page.set_viewport_size({"width": 1366, "height": 900})
+        except Exception:
+            pass
+
         # Inject saved cookies from In-App browser if present
         cookies_file = os.path.join(self.profile_dir, "cookies.json")
         if os.path.exists(cookies_file):
