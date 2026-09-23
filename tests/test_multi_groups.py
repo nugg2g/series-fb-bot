@@ -84,4 +84,9 @@ print(f"Nong Khao Hom Curated Title 1: {k_title}")
 assert len(k_title) > 5, "Curated title is too short"
 assert "ตอนที่" not in k_title, "Nong Khao Hom should not have episode number"
 
+print('\n=== 7. Testing Priority Immediate for Nong Khao Hom ===')
+ded_group = [g for g in exec_groups if g.get("group_id") == "group_dedicated_1page"][0]
+assert ded_group.get("priority") == "immediate", f"Expected priority 'immediate', got {ded_group.get('priority')}"
+print(f"Dedicated group priority verified: {ded_group.get('priority')}")
+
 print('\nALL COMPONENT LOGIC CHECKS PASSED!')

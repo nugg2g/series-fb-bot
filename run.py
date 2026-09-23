@@ -12,7 +12,8 @@ if sys.platform == "win32":
         pass
 
 if __name__ == "__main__":
-    if len(sys.argv) > 1:
+    cli_flags = ["--cli", "--login", "--check"]
+    if any(arg in sys.argv for arg in cli_flags):
         from cli import main as cli_main
         cli_main()
     else:

@@ -151,22 +151,38 @@ class ReelUploadEngine:
                 if not groups:
                     break
 
-                # Round-Robin: ລອງແຕ່ລະກຸ່ມເລີ່ມຈາກ current_group_index
-                any_video_processed = False
-                tried_count = 0
+                # 1. ກວດສອບກຸ່ມ Priority (ນ້ອງເຂົ້າຫອມ / priority='immediate') ກ່ອນສະເໝີ
+                priority_group = None
+                for g in groups:
+                    if g.get("priority") == "immediate" or g.get("group_id") == "group_dedicated_1page":
+                        p_fol = g.get("video_folder", self.config.get("video_folder", "./videos"))
+                        p_comp = g.get("completed_folder", self.config.get("completed_folder", "./completed"))
+                        p_pgs = g.get("pages", [])
+                        if self.queue_mgr.get_pending_videos(target_folder=p_fol, completed_folder=p_comp, target_pages=p_pgs):
+                            priority_group = g
+                            break
 
-                while tried_count < len(groups):
+                any_video_processed = False
+
+                if priority_group:
+                    target_candidate_groups = [(priority_group, False)]  # (group, should_advance_round_robin)
+                    self.log(f"⚡ [Priority #1] ພົບ Content ໃໝ່ຂອງເພຈ '{priority_group.get('group_name')}'! ດຶງມາອັບໂຫຼດທັນທີ...")
+                else:
+                    # Round-Robin: ລອງແຕ່ລະກຸ່ມເລີ່ມຈາກ current_group_index
+                    target_candidate_groups = [
+                        (groups[(current_group_index + i) % len(groups)], True)
+                        for i in range(len(groups))
+                    ]
+
+                for group, should_advance in target_candidate_groups:
                     if not self._is_running:
                         break
 
-                    g_idx = current_group_index % len(groups)
-                    group = groups[g_idx]
-                    # ເລື່ອນໄປກຸ່ມຖັດໄປສຳລັບຮອບໜ້າ
-                    current_group_index = (current_group_index + 1) % len(groups)
-                    tried_count += 1
+                    if should_advance:
+                        current_group_index = (current_group_index + 1) % len(groups)
 
-                    g_id = group.get("group_id", f"group_{g_idx+1}")
-                    g_name = group.get("group_name", f"Group {g_idx+1}")
+                    g_id = group.get("group_id", "group")
+                    g_name = group.get("group_name", "Group")
                     g_content_type = group.get("content_type", "china_drama" if g_id != "group_dedicated_1page" else "lao_girl_khaohom")
                     g_folder = group.get("video_folder", self.config.get("video_folder", "./videos"))
                     g_completed = group.get("completed_folder", self.config.get("completed_folder", "./completed"))
@@ -300,6 +316,12 @@ class ReelUploadEngine:
                             self.log(f"⚠️ ການອັບໂຫຼດໄປຍັງ Page '{curr_page_name}' ບໍ່ສຳເລັດ.")
                         else:
                             self.log(f"✅ ອັບໂຫຼດໄປຍັງ Page '{curr_page_name}' ສຳເລັດຮຽບຮ້ອຍ!")
+                            try:
+                                self.queue_mgr.record_page_success(video_path, page_info, meta={
+                                    "title": title, "caption": caption, "group_id": g_id, "group_name": g_name
+                                })
+                            except Exception as e:
+                                self.log(f"Warning recording page success: {e}")
 
                         if p_idx < len(g_pages) and self._is_running:
                             page_delay_mins = round(random.uniform(3, 10), 1)
@@ -455,6 +477,7 @@ class ReelUploadEngine:
                             self.log(f"⏳ ພັກລໍຖ້າ (Delay) {delay_mins} ນາທີ ເພື່ອປ້ອງກັນ Facebook Spam...")
 
                         total_seconds = int(delay_mins * 60)
+                        interrupted_by_priority = False
                         for s in range(total_seconds):
                             if not self._is_running:
                                 break
@@ -462,6 +485,23 @@ class ReelUploadEngine:
                                 time.sleep(1)
                                 if not self._is_running:
                                     break
+
+                            # ກວດສອບກຸ່ມ Priority (ນ້ອງເຂົ້າຫອມ) ທຸກໆ 60 ວິນາທີ (1 ນາທີ - ບໍ່ກວດດຸເກີນໄປ ປະຢັດ Resource)
+                            if s > 0 and s % 60 == 0:
+                                current_groups = self._get_execution_groups()
+                                for pg in current_groups:
+                                    if pg.get("priority") == "immediate" or pg.get("group_id") == "group_dedicated_1page":
+                                        p_folder = pg.get("video_folder")
+                                        p_comp = pg.get("completed_folder")
+                                        p_pages = pg.get("pages", [])
+                                        p_pending = self.queue_mgr.get_pending_videos(target_folder=p_folder, completed_folder=p_comp, target_pages=p_pages)
+                                        if p_pending:
+                                            self.log(f"\n⚡ [Instant Priority] ກວດພົບ content ໃໝ່ຂອງເພຈ '{pg.get('group_name')}' ({len(p_pending)} ໄຟລ໌)! ຕັດເວລາພັກລໍຖ້າ ແລະ ເລີ່ມອັບໂຫຼດທັນທີ...")
+                                            interrupted_by_priority = True
+                                            break
+                                if interrupted_by_priority:
+                                    break
+
                             time.sleep(1)
 
                     # Break inner tried loop - go back to main while loop

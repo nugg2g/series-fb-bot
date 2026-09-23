@@ -193,7 +193,7 @@ class QueueManager:
             hashes_map = self.history.get("hashes", {})
             rec = hashes_map.get(f_hash) if f_hash else None
 
-        if rec and rec.get("status") == "success":
+        if rec and rec.get("status") in ("success", "in_progress"):
             meta = rec.get("meta", {})
             target_pages = meta.get("target_pages", [])
             for tp in target_pages:
@@ -203,6 +203,48 @@ class QueueManager:
                         uploaded_ids.add(pid)
 
         return uploaded_ids
+
+    def record_page_success(self, video_path: str, page_info: dict, meta: Optional[dict] = None):
+        """Immediately records that a video was successfully uploaded to a specific page."""
+        basename = os.path.basename(video_path)
+        f_hash = self.get_hash(video_path)
+
+        if "files" not in self.history:
+            self.history["files"] = {}
+        if "hashes" not in self.history:
+            self.history["hashes"] = {}
+
+        rec = self.history["files"].get(basename) or (self.history["hashes"].get(f_hash) if f_hash else None)
+        if not rec:
+            rec = {
+                "filename": basename,
+                "original_path": video_path,
+                "file_hash": f_hash,
+                "status": "in_progress",
+                "uploaded_at": datetime.now().isoformat(),
+                "meta": meta or {}
+            }
+            self.history["files"][basename] = rec
+            if f_hash:
+                self.history["hashes"][f_hash] = rec
+
+        if "meta" not in rec:
+            rec["meta"] = {}
+        target_pages = rec["meta"].setdefault("target_pages", [])
+        pid = str(page_info.get("page_id", "")).strip()
+
+        existing = next((p for p in target_pages if str(p.get("page_id", "")).strip() == pid), None)
+        if existing:
+            existing["success"] = True
+            existing["page_name"] = page_info.get("page_name", "")
+        else:
+            target_pages.append({
+                "page_name": page_info.get("page_name", ""),
+                "page_id": pid,
+                "success": True
+            })
+
+        self._save_history()
 
     def needs_upload_to_pages(self, video_path: str, target_pages: list, completed_folder: Optional[str] = None) -> Tuple[bool, list, list]:
         """

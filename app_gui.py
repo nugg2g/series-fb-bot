@@ -975,7 +975,6 @@ class MainWindow(QMainWindow):
             self.webview.load(QUrl("https://business.facebook.com/latest/home"))
         except Exception as e:
             print(f"[AppGUI] Error initializing In-App WebEngine: {e}")
-        return widget
 
     def navigate_to_url(self):
         text = self.txt_url.text().strip()
@@ -2729,6 +2728,12 @@ def main():
     window.show()
     window.raise_()
     window.activateWindow()
+
+    # Auto-start upload if requested via commandline
+    if any(arg in sys.argv for arg in ["--autostart", "--start", "-a"]):
+        print("🚀 [AutoStart] Triggering automatic upload start in 1 second...")
+        QTimer.singleShot(1000, window.start_upload)
+
     sys.exit(app.exec())
 
 if __name__ == "__main__":
