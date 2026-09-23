@@ -12,13 +12,39 @@ class ReelsUploader:
     REELS_COMPOSER_URL = "https://business.facebook.com/latest/reels_composer"
     POST_COMPOSER_URL = "https://business.facebook.com/latest/composer"
 
-    def __init__(self, page: Page, config: Dict[str, Any], log_cb: Optional[Callable[[str], None]] = None, progress_cb: Optional[Callable[[int, str], None]] = None):
+    def __init__(self, page: Page, config: Dict[str, Any], log_cb: Optional[Callable[[str], None]] = None, progress_cb: Optional[Callable[[int, str], None]] = None, browser_mgr=None):
         self.page = page
         self.config = config
         self.log_cb = log_cb or print
         self.progress_cb = progress_cb
+        self.browser_mgr = browser_mgr
         self.screenshot_dir = os.path.abspath("./logs/screenshots")
         os.makedirs(self.screenshot_dir, exist_ok=True)
+
+    def ensure_active_page(self) -> Page:
+        """Ensures self.page is alive and responsive before any browser interaction."""
+        is_alive = False
+        try:
+            if self.page and not self.page.is_closed():
+                _ = self.page.url
+                is_alive = True
+        except Exception:
+            is_alive = False
+
+        if not is_alive:
+            self.log("🔄 Browser page ຖືກປິດ ຫຼື ຫຼຸດການເຊື່ອມຕໍ່, ກຳລັງເຊື່ອມຕໍ່ໃໝ່ອັດຕະໂນມັດ...")
+            if hasattr(self, 'browser_mgr') and self.browser_mgr:
+                self.page = self.browser_mgr.get_active_page()
+            elif self.page and hasattr(self.page, 'context') and self.page.context and not self.page.context.is_closed():
+                try:
+                    for p in self.page.context.pages:
+                        if not p.is_closed():
+                            self.page = p
+                            return self.page
+                    self.page = self.page.context.new_page()
+                except Exception:
+                    pass
+        return self.page
 
     def emit_progress(self, percent: int, text: str):
         if self.progress_cb:
@@ -89,6 +115,7 @@ class ReelsUploader:
         target_page_name = str(t_page.get("page_name") or self.config.get("page_name", "")).strip()
 
         try:
+            self.ensure_active_page()
             self.emit_progress(5, f"ເລີ່ມຕົ້ນອັບໂຫຼດ: {filename}")
 
             # 1. Navigate to Reels Composer (using asset_id if available)
@@ -234,6 +261,7 @@ class ReelsUploader:
         target_page_name = str(t_page.get("page_name") or self.config.get("page_name", "")).strip()
 
         try:
+            self.ensure_active_page()
             self.emit_progress(5, f"ເລີ່ມຕົ້ນໂພສຮູບພາບ: {filename}")
 
             # 1. Navigate to Composer (using asset_id if available)

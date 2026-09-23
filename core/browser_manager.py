@@ -57,11 +57,42 @@ class BrowserManager:
                 except Exception:
                     pass
 
+    def get_active_page(self, force_headed: bool = False) -> Page:
+        """Returns a valid, open Page. Re-launches if context or page was closed."""
+        try:
+            if self.page and not self.page.is_closed():
+                _ = self.page.url
+                return self.page
+        except Exception:
+            pass
+
+        try:
+            if self.context and not self.context.is_closed():
+                for p in self.context.pages:
+                    try:
+                        if not p.is_closed():
+                            self.page = p
+                            return self.page
+                    except Exception:
+                        pass
+                self.page = self.context.new_page()
+                return self.page
+        except Exception:
+            pass
+
+        self.close()
+        return self.launch(force_headed=force_headed)
+
     def launch(self, force_headed: bool = False) -> Page:
         """Launches the persistent browser context and returns the main page."""
-        if self.page and not self.page.is_closed():
-            return self.page
+        try:
+            if self.page and not self.page.is_closed():
+                _ = self.page.url
+                return self.page
+        except Exception:
+            pass
 
+        self.close()
         self._cleanup_stale_locks()
         is_headless = False if force_headed else self.headless
 

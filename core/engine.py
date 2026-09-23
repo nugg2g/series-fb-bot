@@ -126,8 +126,8 @@ class ReelUploadEngine:
         
         try:
             # Launch browser
-            page = self.browser_mgr.launch()
-            uploader = ReelsUploader(page, self.config, log_cb=self.log, progress_cb=self.update_progress)
+            page = self.browser_mgr.get_active_page()
+            uploader = ReelsUploader(page, self.config, log_cb=self.log, progress_cb=self.update_progress, browser_mgr=self.browser_mgr)
 
             # Check login
             if not self.browser_mgr.check_login_status():
@@ -559,8 +559,8 @@ class ReelUploadEngine:
         browser_page = page
         need_close = False
         if not browser_page or browser_page.is_closed():
-            browser_page = self.browser_mgr.launch()
-            need_close = True
+            browser_page = self.browser_mgr.get_active_page()
+            need_close = not self._is_running
 
         overall_ok = True
         try:
@@ -629,7 +629,7 @@ class ReelUploadEngine:
                 else:
                     overall_ok = False
         finally:
-            if need_close:
+            if need_close and not self._is_running:
                 try:
                     self.browser_mgr.close()
                 except Exception:
