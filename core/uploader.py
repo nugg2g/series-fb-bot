@@ -445,6 +445,11 @@ class ReelsUploader:
             'div[contenteditable="true"][aria-label*="caption"]',
             'div[contenteditable="true"][aria-label*="คำอธิบาย"]',
             'div[contenteditable="true"][aria-label*="ຄຳອະທິບາຍ"]',
+            'div[contenteditable="true"][aria-label*="text" i]',
+            'div[contenteditable="true"][aria-label*="write" i]',
+            'div[data-lexical-editor="true"]',
+            'div[data-contents="true"]',
+            'div[role="textbox"]',
             'div[contenteditable="true"]',
             'textarea'
         ]
@@ -458,17 +463,25 @@ class ReelsUploader:
 
         first_line = caption.strip().split("\n")[0] if caption else ""
 
-        for sel in caption_selectors:
-            box = self.page.locator(sel).first
-            if box.is_visible(timeout=2000):
-                box.click()
-                time.sleep(0.5)
+        # Try twice: once as-is, once after scrolling down
+        for attempt in range(2):
+            for sel in caption_selectors:
+                loc = self.page.locator(sel)
+                if loc.count() > 0:
+                    box = loc.first
+                    try:
+                        box.scroll_into_view_if_needed(timeout=2000)
+                    except Exception:
+                        pass
+                    if box.is_visible(timeout=2000):
+                        box.click()
+                        time.sleep(0.5)
 
-                # Clear existing text cleanly
-                self.page.keyboard.press("Control+A")
-                self.page.keyboard.press("Backspace")
-                self.page.keyboard.press("Escape")
-                time.sleep(0.3)
+                        # Clear existing text cleanly
+                        self.page.keyboard.press("Control+A")
+                        self.page.keyboard.press("Backspace")
+                        self.page.keyboard.press("Escape")
+                        time.sleep(0.3)
 
                 success = False
 
@@ -536,6 +549,13 @@ class ReelsUploader:
                 preview = final_text.replace('\n', ' ')[:70]
                 self.log(f"✍️ ป้อน Caption สำเร็จ ({len(final_text)} ตัวอักษร): {preview}...")
                 return
+
+            if attempt == 0:
+                try:
+                    self.page.mouse.wheel(0, 400)
+                    time.sleep(1)
+                except Exception:
+                    pass
 
         raise Exception("ไม่พบช่องใส่ Caption/Description")
 
