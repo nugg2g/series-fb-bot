@@ -126,7 +126,7 @@ class CtaPoster:
         
         # Ensure page name used in Thai caption is strictly pure Thai without Lao script or non-drama terms
         if re.search(r'[\u0E80-\u0EFF]', p_name) or "savannakhet" in p_name.lower() or "football" in p_name.lower():
-            clean_display_name = "ซีรีส์จีน เต็มเรื่อง"
+            clean_display_name = "สถานีซีรีย์"
         else:
             clean_display_name = p_name
 

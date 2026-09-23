@@ -339,6 +339,14 @@ class ReelsUploader:
         self.log(f"🛡️ [Strict Page Guard] ກວດສອບຄວາມຖືກຕ້ອງຂອງ Facebook Page: '{page_name}' (ID: {page_id})...")
 
         clean_target = page_name.replace("ซี่รีย์", "ซีรีส์").replace(" ", "").lower() if page_name else ""
+        
+        # Support alias matching for Page 3 (ID: 104640754387216 - สถานีซีรีย์ / ສະຫະພັນບານເຕະແຂວງສະຫວັນນະເຂດ)
+        target_aliases = [clean_target] if clean_target else []
+        if str(page_id).strip() == "104640754387216" or "สถานีซีรีย์" in page_name or "สถานีซีรีส์" in page_name or "ສະຫະພັນ" in page_name:
+            for alias in ["สถานีซีรีย์", "สถานีซีรีส์", "ສະຫະພັນ", "savannakhet"]:
+                clean_al = alias.replace("ซี่รีย์", "ซีรีส์").replace(" ", "").lower()
+                if clean_al not in target_aliases:
+                    target_aliases.append(clean_al)
 
         def check_dom_page_match() -> Tuple[bool, str]:
             try:
@@ -368,10 +376,10 @@ class ReelsUploader:
                     });
                     return results;
                 }""")
-                if clean_target:
+                for a in target_aliases:
                     for t in texts:
                         clean_t = t.replace("ซี่รีย์", "ซีรีส์").replace(" ", "").lower()
-                        if clean_target in clean_t or clean_t in clean_target:
+                        if a in clean_t or clean_t in a:
                             return True, t
             except Exception as e:
                 self.log(f"Notice inspecting DOM: {e}")
@@ -403,13 +411,19 @@ class ReelsUploader:
                     el.click()
                     time.sleep(2)
                     self.log("📋 ເປີດເມນູເລືອກ Page ແລ້ວ, ກຳລັງຄົ້ນຫາຊື່ Page ເປົ້າໝາຍ...")
-                    # Look for page name inside the opened menu
-                    target_item = self.page.locator(f'div[role="menuitem"]:has-text("{page_name}"), div[role="option"]:has-text("{page_name}"), span:has-text("{page_name}")').first
-                    if target_item.is_visible(timeout=2000):
-                        target_item.click()
-                        time.sleep(4)
-                        self.log(f"✅ ກົດສະຫຼັບໄປຫາ Page '{page_name}' ສຳເລັດ!")
-                        break
+                    # Look for page name or aliases inside the opened menu
+                    switcher_candidates = [page_name]
+                    if str(page_id).strip() == "104640754387216" or "สถานีซีรีย์" in page_name or "ສະຫະພັນ" in page_name:
+                        switcher_candidates.extend(["สถานีซีรีย์", "สถานีซีรีส์", "ສະຫະພັນ", "Savannakhet"])
+
+                    for cand in switcher_candidates:
+                        target_item = self.page.locator(f'div[role="menuitem"]:has-text("{cand}"), div[role="option"]:has-text("{cand}"), span:has-text("{cand}")').first
+                        if target_item.is_visible(timeout=1500):
+                            target_item.click()
+                            time.sleep(4)
+                            self.log(f"✅ ກົດສະຫຼັບໄປຫາ Page '{cand}' ສຳເລັດ!")
+                            break
+                    break
         except Exception as e:
             self.log(f"Notice attempting page switcher: {e}")
 

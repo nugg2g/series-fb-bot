@@ -389,7 +389,7 @@ class MainWindow(QMainWindow):
 
         self.lbl_dash_g1_p1 = QLabel("1️⃣ <b>Page 1:</b> ซี่รีย์จีน เต็มเรื่อง (ID: 1332661329928072)")
         self.lbl_dash_g1_p2 = QLabel("2️⃣ <b>Page 2:</b> ติ่งซีรีส์จีน - ดูฟรีเต็มเรื่อง (ID: 1311717205364831)")
-        self.lbl_dash_g1_p3 = QLabel("3️⃣ <b>Page 3:</b> ສະຫະພັນບານເຕະແຂວງສະຫວັນນະເຂດ (ID: 104640754387216)")
+        self.lbl_dash_g1_p3 = QLabel("3️⃣ <b>Page 3:</b> สถานีซีรีย์ (ID: 104640754387216)")
         self.lbl_dash_g1_fld = QLabel("📁 Folder: Y:/Movies FB")
         self.lbl_dash_g1_fld.setStyleSheet("color: #94a3b8; font-size: 11px;")
 
