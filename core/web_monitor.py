@@ -66,6 +66,15 @@ def load_security_settings():
     return pin or "5564", token or "b0015017e92db8567376789a3d0c12b0"
 
 ACCESS_PIN, SYNC_SECRET_TOKEN = load_security_settings()
+
+def get_current_pin() -> str:
+    pin, _ = load_security_settings()
+    return pin or ACCESS_PIN
+
+def get_current_token() -> str:
+    _, token = load_security_settings()
+    return token or SYNC_SECRET_TOKEN
+
 SECRET_SALT = os.environ.get("SECRET_SALT", "reels_bot_secure_salt_9988")
 
 # Anti-Brute-Force & Rate Limiting Tracker
@@ -129,12 +138,13 @@ def verify_auth(req) -> bool:
     elif req.args.get("token"):
         token = req.args.get("token").strip()
 
-    valid_token = generate_session_token(ACCESS_PIN)
+    curr_pin = get_current_pin()
+    valid_token = generate_session_token(curr_pin)
     if token and hmac.compare_digest(token, valid_token):
         return True
 
     direct_pin = req.headers.get("X-Access-PIN", "").strip()
-    if direct_pin and hmac.compare_digest(direct_pin, ACCESS_PIN):
+    if direct_pin and hmac.compare_digest(direct_pin, curr_pin):
         return True
 
     return False
@@ -1320,7 +1330,7 @@ def api_auth_login():
         record_failed_attempt(ip)
         return jsonify({"success": False, "message": "❌ ລະຫັດ PIN ບໍ່ຖືກຕ້ອງ"}), 400
 
-    if pin and hmac.compare_digest(pin, ACCESS_PIN):
+    if pin and hmac.compare_digest(pin, get_current_pin()):
         clear_failed_attempts(ip)
         token = generate_session_token(pin)
         return jsonify({"success": True, "token": token, "message": "ປົດລັອກສຳເລັດ (Unlock success)"})
