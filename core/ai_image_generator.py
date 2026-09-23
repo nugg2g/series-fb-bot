@@ -1,22 +1,22 @@
 """
 core/ai_image_generator.py — ລະບົບສ້າງຮູບພາບ AI ໂປສເຕີ/ສາກໜັງຈີນ & ຂຽນ Caption ເຊີນຊວນຕິດຕາມບໍ່ຊ້ຳກັນ 100%
 
-ສະຖາປັດຕະຍະກຳ Hybrid AI Cinema Synthesizer:
-1. Video Keyframe Extraction: ສຸ່ມຈັບເຟຣມລະດັບ HD ຈາກວິດີໂອໃນຄັງໜັງ (Zero-failure, ສວຍງາມ, ບໍ່ຊ້ຳກັນ).
-2. Cinema Color Grading & Enhancements: ແຕ່ງສີ Cinema Teal/Gold/Purple, Contrast, Vignette ດ້ວຍ OpenCV/PIL.
-3. Gemini AI Visual Director: ວິເຄາະພາບ ແລະ ສ້າງຊື່ເລື່ອງສຸດມັນ, ຄຳໂປຣໂມດ, ແລະ Caption ຊວນກົດຕິດຕາມພ້ອມ Hashtags.
+ສະຖາປັດຕະຍະກຳ 100% Pure AI Cinema Synthesizer (ບໍ່ໃຊ້ຮູບປົກ ຫຼື ເຟຣມວິດີໂອເດັດຂາດ):
+1. 100% Pure Generative AI Imagery: ສ້າງຮູບພາບພື້ນຫຼັງດ້ວຍ AI ສັງເຄາະ 100% (Gemini Image API / AI Cinema Backdrops Pool).
+2. Cinema Color Grading: ແຕ່ງສີ Cinema Teal/Gold/Purple, Contrast, Vignette ໃຫ້ຄົມຊັດລະດັບ Ultra HD.
+3. Gemini AI Visual Director: ວິເຄາະພາບ AI ແລະ ສ້າງຊື່ເລື່ອງສຸດມັນ, ຄຳໂປຣໂມດ, ແລະ Caption ຊວນກົດຕິດຕາມ (ພາສາໄທລ້ວນ 100%).
 4. Typography & Badges: ໃສ່ກອບ Luxury Gold/Neon, ປ້າຍ "🎬 ຊີຣີຈີນເຕັມເລື່ອງ", ແລະ ປ້າຍ Follower CTA ແບບມືອາຊີບ.
 """
 
 import os
 import io
+import json
 import time
 import glob
 import random
 from datetime import datetime
 from typing import Dict, Any, Tuple, Optional
 from PIL import Image, ImageDraw, ImageFont, ImageFilter, ImageEnhance
-import cv2
 
 from core.caption_generator import CaptionGenerator
 
@@ -26,6 +26,8 @@ class AiImageGenerator:
         self.config = config
         self.output_dir = os.path.abspath(config.get("cta_images_folder", "./cta_images"))
         os.makedirs(self.output_dir, exist_ok=True)
+        self.ai_backdrops_dir = os.path.abspath(os.path.join(os.path.dirname(os.path.dirname(__file__)), "ai_cinema_backdrops"))
+        os.makedirs(self.ai_backdrops_dir, exist_ok=True)
         self.caption_gen = CaptionGenerator(config)
         self.cta_cache_file = os.path.abspath("./logs/today_cta_cache.json")
 
@@ -61,7 +63,8 @@ class AiImageGenerator:
 
     def generate_unique_cta_post(self, video_path: Optional[str] = None) -> Tuple[str, str, str]:
         """
-        ສ້າງຮູບພາບໂປສເຕີ AI ແລະ Caption ເຊີນຊວນຕິດຕາມເພຈ Facebook ແບບບໍ່ຊ້ຳກັນ 100%
+        ສ້າງຮູບພາບໂປສເຕີ AI 100% ແລະ Caption ເຊີນຊວນຕິດຕາມເພຈ Facebook ແບບບໍ່ຊ້ຳກັນ (ພາສາໄທລ້ວນ)
+        ໝາຍເຫດ: ບໍ່ໃຊ້ຮູບປົກ ຫຼື ເຟຣມວິດີໂອຈາກຄັງໜັງເດັດຂາດ (Pure Generative AI 100%)
         Returns:
             (saved_image_path, ai_caption_text, title)
         """
@@ -71,22 +74,16 @@ class AiImageGenerator:
             print(f"[AiImageGenerator] ⚡ [Credit Saver] Reusing today's cached AI CTA poster: {os.path.basename(cached[0])}")
             return cached
 
-        # 1. ຫາໄຟລ໌ວິດີໂອສຳລັບດຶງ Keyframe
-        target_video = video_path or self._pick_random_video()
+        # 1. ສ້າງ ຫຼື ດຶງຮູບພາບພື້ນຫຼັງ AI Gen 100% (Zero video frames)
+        base_img = self._get_pure_ai_backdrop()
 
-        # 2. ສ້າງຮູບພື້ນຫຼັງ (ຈາກ Video Keyframe ຫຼື Procedural Cinema Backdrop)
-        if target_video and os.path.exists(target_video):
-            base_img = self._extract_cinematic_frame(target_video)
-        else:
-            base_img = self._generate_procedural_backdrop()
+        # 2. ໃຫ້ Gemini AI ວິເຄາະຮູບພາບ AI ແລະ ສ້າງຊື່ເລື່ອງ + Caption (ພາສາໄທລ້ວນ 100%)
+        title, subtitle, caption = self._generate_ai_content(base_img)
 
-        # 3. ໃຫ້ Gemini AI ວິເຄາະ ແລະ ສ້າງຊື່ເລື່ອງ + Caption
-        title, subtitle, caption = self._generate_ai_content(target_video, base_img)
-
-        # 4. ຕົກແຕ່ງຮູບດ້ວຍ Cinema Typography, Badges ແລະ ກອບຫຼູຫຼາ
+        # 3. ຕົກແຕ່ງຮູບດ້ວຍ Cinema Typography, Badges ແລະ ກອບຫຼູຫຼາ
         final_img = self._composite_cinema_poster(base_img, title, subtitle)
 
-        # 5. ບັນທຶກຮູບພາບດ້ວຍ Timestamp ສະເພາະ
+        # 4. ບັນທຶກຮູບພາບດ້ວຍ Timestamp ສະເພາະ
         timestamp_str = datetime.now().strftime("%Y%m%d_%H%M%S")
         filename = f"ai_cta_{timestamp_str}_{random.randint(100, 999)}.jpg"
         save_path = os.path.join(self.output_dir, filename)
@@ -97,67 +94,81 @@ class AiImageGenerator:
 
         return save_path, caption, title
 
-    def _pick_random_video(self) -> Optional[str]:
-        folders = [
-            self.config.get("video_folder", "./videos"),
-            "Y:/Movies FB",
-            "./videos",
-            "../"
-        ]
+    def _get_pure_ai_backdrop(self) -> Image.Image:
+        """
+        ສ້າງ ຫຼື ດຶງຮູບພາບພື້ນຫຼັງທີ່ເປັນ Generative AI 100%
+        (ບໍ່ໃຊ້ຮູບປົກ ຫຼື ວິດີໂອຈາກຄັງໜັງເດັດຂາດ ຕາມຄຳສັ່ງຂອງຜູ້ໃຊ້)
+        """
+        # 1. ດຶງຈາກຄັງຮູບພາບ AI Cinema Backdrops ທີ່ AI ສ້າງຂຶ້ນມາ 100%
         candidates = []
-        for folder in folders:
-            if folder and os.path.exists(folder):
-                mp4s = glob.glob(os.path.join(folder, "*.mp4")) + glob.glob(os.path.join(folder, "*.mkv"))
-                if mp4s:
-                    candidates.extend(mp4s)
+        if os.path.exists(self.ai_backdrops_dir):
+            for ext in ("*.jpg", "*.jpeg", "*.png", "*.webp"):
+                candidates.extend(glob.glob(os.path.join(self.ai_backdrops_dir, ext)))
 
         if candidates:
-            return random.choice(candidates)
-        return None
+            chosen_path = random.choice(candidates)
+            try:
+                with Image.open(chosen_path) as src:
+                    pil_img = src.convert("RGB")
+                    # Resize/crop to 1080x1080 Square
+                    w, h = pil_img.size
+                    min_dim = min(w, h)
+                    left = (w - min_dim) // 2
+                    top = (h - min_dim) // 2
+                    cropped = pil_img.crop((left, top, left + min_dim, top + min_dim))
+                    resized = cropped.resize((1080, 1080), Image.Resampling.LANCZOS)
 
-    def _extract_cinematic_frame(self, video_path: str) -> Image.Image:
-        try:
-            cap = cv2.VideoCapture(video_path)
-            total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
-            if total_frames > 100:
-                # ສຸ່ມຈັບເຟຣມລະຫວ່າງ 15% - 85% ເພື່ອຫຼີກລ່ຽງສາກດຳຕອນຕົ້ນ/ທ້າຍ
-                random_pct = random.uniform(0.15, 0.85)
-                target_frame_num = int(total_frames * random_pct)
-                cap.set(cv2.CAP_PROP_POS_FRAMES, target_frame_num)
+                    # Subtle dynamic color enhancement so every run is unique
+                    color_factor = random.uniform(1.05, 1.20)
+                    contrast_factor = random.uniform(1.05, 1.15)
+                    enhanced = ImageEnhance.Color(resized).enhance(color_factor)
+                    final_base = ImageEnhance.Contrast(enhanced).enhance(contrast_factor)
+                    print(f"[AiImageGenerator] 🎨 Loaded 100% AI Backdrop: {os.path.basename(chosen_path)}")
+                    return final_base
+            except Exception as e:
+                print(f"[AiImageGenerator] Could not load backdrop {chosen_path}: {e}")
 
-            ret, frame = cap.read()
-            cap.release()
+        # 2. ຖ້າບໍ່ມີໄຟລ໌ໃນຄັງ, ລອງສ້າງຜ່ານ Gemini Image API ຖ້າເປີດໃຊ້ງານ
+        if self.config.get("ai_image_gen", {}).get("use_live_api", False):
+            live_img = self._try_generate_live_gemini_image()
+            if live_img is not None:
+                return live_img
 
-            if ret and frame is not None:
-                # ປ່ຽນ BGR ເປັນ RGB
-                rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-                pil_img = Image.fromarray(rgb_frame)
-
-                # Crop ຫຼື Resize ໃຫ້ເປັນ 1080x1080 Square
-                w, h = pil_img.size
-                min_dim = min(w, h)
-                left = (w - min_dim) // 2
-                top = (h - min_dim) // 2
-                cropped = pil_img.crop((left, top, left + min_dim, top + min_dim))
-                resized = cropped.resize((1080, 1080), Image.Resampling.LANCZOS)
-
-                # ເພີ່ມ Cinema Grading & Contrast
-                enhancer = ImageEnhance.Color(resized)
-                enhanced = enhancer.enhance(1.25)  # ເພີ່ມຄວາມສົດຂອງສີ
-                contrast = ImageEnhance.Contrast(enhanced)
-                final_base = contrast.enhance(1.15)  # ເພີ່ມ Contrast ຄົມຊັດ
-                return final_base
-        except Exception as e:
-            print(f"[AiImageGenerator] Frame extraction failed: {e}")
-
+        # 3. Fallback: Procedural Cinema Luxury Backdrop
         return self._generate_procedural_backdrop()
 
+    def _try_generate_live_gemini_image(self) -> Optional[Image.Image]:
+        """ພະຍາຍາມຮຽກໃຊ້ Gemini Image Generation Model ຖ້າມີ Credit/Quota."""
+        keys, _ = self.caption_gen.get_api_keys()
+        if not keys:
+            return None
+
+        prompt = "Cinematic movie poster of ancient Chinese fantasy martial arts emperor in majestic dragon armor, dramatic lighting, photorealistic 8k, clean with no text"
+
+        try:
+            from google import genai
+            client = genai.Client(api_key=keys[0])
+            res = client.models.generate_content(
+                model="gemini-2.5-flash-image",
+                contents=[prompt]
+            )
+            if res and res.parts:
+                for part in res.parts:
+                    if part.inline_data:
+                        img = part.as_image().convert("RGB")
+                        img = img.resize((1080, 1080), Image.Resampling.LANCZOS)
+                        print(f"[AiImageGenerator] ✨ Live Gemini AI image generated successfully!")
+                        return img
+        except Exception as e:
+            print(f"[AiImageGenerator] Live Gemini image gen skipped: {e}")
+
+        return None
+
     def _generate_procedural_backdrop(self) -> Image.Image:
-        """ສ້າງສາກຫຼັງ Cinema Luxury Gradient ໃນກໍລະນີບໍ່ມີໄຟລ໌ວິດີໂອ."""
+        """ສ້າງສາກຫຼັງ Cinema Luxury Gradient ໃນກໍລະນີສຸກເສີນ."""
         img = Image.new("RGB", (1080, 1080), color=(15, 12, 28))
         draw = ImageDraw.Draw(img)
 
-        # Gradient
         themes = [
             ((20, 10, 40), (80, 20, 90), (255, 180, 50)),   # Royal Purple & Gold
             ((5, 15, 35), (10, 50, 90), (0, 210, 255)),      # Sci-Fi Cyber Blue
@@ -172,7 +183,6 @@ class AiImageGenerator:
             b = int(c1[2] * (1 - ratio) + c2[2] * ratio)
             draw.line([(0, y), (1080, y)], fill=(r, g, b))
 
-        # Radial glow center
         glow = Image.new("RGBA", (1080, 1080), (0, 0, 0, 0))
         gdraw = ImageDraw.Draw(glow)
         for r in range(400, 0, -20):
@@ -182,51 +192,67 @@ class AiImageGenerator:
 
         return img
 
-    def _generate_ai_content(self, video_path: Optional[str], frame_img: Image.Image) -> Tuple[str, str, str]:
+    def _generate_ai_content(self, frame_img: Image.Image) -> Tuple[str, str, str]:
         """ໃຊ້ Gemini AI ສ້າງຊື່ເລື່ອງ, ຄຳໂປຣໂມດ ແລະ Caption ເຊີນຊວນຕິດຕາມເພຈ ເປັນພາສາໄທລ້ວນ 100%."""
         import re
-        clean_filename = ""
-        if video_path:
-            clean_filename = self.caption_gen.clean_filename(os.path.basename(video_path))
-            clean_filename = re.sub(r'[\u0E80-\u0EFF]', '', clean_filename).strip()
 
-        # ຖ້າ Gemini ເປີດໃຊ້ງານ
         ai_cfg = self.config.get("ai_caption", {})
         if ai_cfg.get("enabled", True):
-            temp_cover = os.path.join(self.output_dir, "_temp_cta_frame.jpg")
             try:
-                frame_img.resize((720, 720)).save(temp_cover, format="JPEG", quality=85)
-                res = self.caption_gen.generate_with_ai(cover_path=temp_cover, story_hints=clean_filename)
-                if os.path.exists(temp_cover):
-                    try:
-                        os.remove(temp_cover)
-                    except Exception:
-                        pass
-                if res and res.get("title") and res.get("caption"):
-                    t = res["title"].replace("ตอนที่ 1", "").replace("EP.1", "").strip()
-                    # Strip any non-Thai/Lao characters
-                    t = re.sub(r'[\u0E80-\u0EFF]', '', t).strip()
-                    if not t or len(t) < 3:
-                        t = "ซีรีส์จีน ดราม่าเข้มข้น พากย์ไทย"
-                    s = "ซีรีส์จีนดราม่าสุดเข้มข้น พากย์ไทยเต็มเรื่อง"
-                    c = res["caption"]
-                    c = re.sub(r'[\u0E80-\u0EFF]', '', c).strip()
-                    # Add follower CTA line to caption if not already present (100% Thai)
-                    if "ติดตาม" not in c:
-                        c += "\n\n👉 ฝากกด Like และกด Follow ติดตามเพจ เพื่อรับชมซีรีส์จีนเรื่องใหม่ๆ ทุกวันด้วยนะครับ! ✨"
-                    return t, s, c
+                from google import genai
+                from google.genai import types
+                keys, _ = self.caption_gen.get_api_keys()
+                if keys:
+                    prompt = (
+                        "Generate a viral, catchy Thai drama title and engaging follower invitation caption in 100% PURE THAI LANGUAGE (ภาษาไทยล้วน) for a Chinese mini-series Facebook page.\n"
+                        "CRITICAL: Absolutely NO Lao characters (ห้ามมีภาษาลาวโดยเด็ดขาด 100%).\n"
+                        "Respond ONLY with valid JSON:\n"
+                        "{\n"
+                        '  "title": "[ชื่อซีรีส์จีนสุดมันส์ เช่น ศึกจอมราชันย์ ทวงบัลลังก์]",\n'
+                        '  "subtitle": "[คำโปรย เช่น ซีรีส์จีนดราม่าสุดเข้มข้น พากย์ไทยเต็มเรื่อง]",\n'
+                        '  "caption": "🎬 ✨ [ชื่อเรื่อง] ✨\\n\\n🔥 [คำโปรย]\\n\\n📌 ติดตามเรื่องราวความสนุกและซีรีส์จีนเรื่องใหม่ๆ ก่อนใคร!\\n👉 ฝากกด Like 👍 และกด Follow (ติดตามเพจ) เพื่อเป็นกำลังใจให้ทีมงานด้วยนะครับ ❤️\\n✨ รับชมซีรีส์เต็มเรื่อง ดูฟรีไม่มีโฆษณาคั่นได้ที่นี่ทุกวัน!\\n\\n#ซีรีส์จีน #หนังสั้นจีน #ซีรีส์จีนเต็มเรื่อง #พากย์ไทย #ละครสั้น #reels #reelsfb #viral #กดติดตาม"\n'
+                        "}"
+                    )
+                    http_opts = types.HttpOptions(
+                        timeout=8000,
+                        retry_options=types.HttpRetryOptions(attempts=1)
+                    )
+                    for k in keys[:2]:
+                        try:
+                            client = genai.Client(api_key=k, http_options=http_opts)
+                            res = client.models.generate_content(
+                                model="gemini-3.5-flash-lite",
+                                contents=[prompt]
+                            )
+                            if res and res.text:
+                                match = re.search(r'\{.*\}', res.text, re.DOTALL)
+                                if match:
+                                    data = json.loads(match.group(0))
+                                    t = data.get("title", "").strip()
+                                    s = data.get("subtitle", "").strip()
+                                    c = data.get("caption", "").strip()
+                                    t = re.sub(r'[\u0E80-\u0EFF]', '', t).strip()
+                                    s = re.sub(r'[\u0E80-\u0EFF]', '', s).strip()
+                                    c = re.sub(r'[\u0E80-\u0EFF]', '', c).strip()
+                                    if t and c:
+                                        print(f"[AiImageGenerator] 🤖 Generated Thai AI Content via Gemini: '{t}'")
+                                        return t, s or "ซีรีส์จีนดราม่าสุดเข้มข้น พากย์ไทยเต็มเรื่อง", c
+                        except Exception:
+                            continue
             except Exception as e:
-                print(f"[AiImageGenerator] Gemini AI visual prompt failed: {e}")
+                print(f"[AiImageGenerator] AI Content generation skipped: {e}")
 
         # Curated Fallback (100% Pure Thai)
         fallback_titles = [
-            "ศึกจอมราชันย์ ทวงบัลลังก์",
+            "ศึกจอมราชันย์ ทวงบัลลังກ์",
             "เล่ห์รักจอมใจ ข้ามมิติ 100 ปี",
             "หวนคืนบัลลังก์จักรพรรดิ",
             "เทพยุทธ์สะท้านภพ ชะตาแค้น",
             "ความแค้นคุณหนูใหญ่ตระกูลหลิน",
             "ทะลุมิติมาเป็นชายาจำยอม",
-            "ยอดฝีมือไร้พ่าย กู้บัลลังก์ทอง"
+            "ยอดฝีมือไร้พ่าย กู้บัลลังก์ทอง",
+            "ประธานหมื่นล้าน ปลอมตัวลองใจรัก",
+            "คุณหนูตกอับ หวนคืนล้างแค้นตระกูลดัง"
         ]
         fallback_subtitles = [
             "ซีรีส์จีนดราม่าสุดเข้มข้น พากย์ไทยเต็มเรื่อง",
@@ -234,10 +260,8 @@ class AiImageGenerator:
             "ความรักและการแก้แค้น สนุกจนหยุดดูไม่ได้",
             "อัปเดตตอนใหม่เต็มเรื่องจุใจ ทุกวัน!",
         ]
-        t = clean_filename if clean_filename else random.choice(fallback_titles)
+        t = random.choice(fallback_titles)
         t = re.sub(r'[\u0E80-\u0EFF]', '', t).strip()
-        if not t or len(t) < 3:
-            t = random.choice(fallback_titles)
         s = random.choice(fallback_subtitles)
         c = (
             f"🎬 ✨ {t} ✨\n\n"
@@ -278,7 +302,7 @@ class AiImageGenerator:
         font_cta = self._load_font(font_dir, ["tahomabd.ttf", "arialbd.ttf"], size=36)
 
         # 3. Top Cinema Badge
-        badge_text = "🎬 ซีรีส์จีน เต็มเรื่อง (Full Episode)"
+        badge_text = "ซีรีส์จีน เต็มเรื่อง (Full Episode)"
         self._draw_pill_badge(draw, 540, 70, badge_text, font_badge, bg_color=(230, 57, 70), text_color=(255, 255, 255))
 
         # 4. Title & Subtitle at Lower Section
@@ -300,7 +324,7 @@ class AiImageGenerator:
 
         # 5. Bottom Big Follower CTA Bar
         cta_y = 980
-        cta_text = "👉 กดติดตามเพจ เพื่อรับชมตอนใหม่ฟรี! ✨"
+        cta_text = "► กดติดตามเพจ เพื่อรับชมตอนใหม่ฟรี! ◄"
         self._draw_pill_badge(
             draw, 540, cta_y, cta_text, font_cta,
             bg_color=(255, 183, 3), text_color=(15, 15, 25),

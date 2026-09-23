@@ -467,10 +467,10 @@ class CaptionGenerator:
 
         keys = [k.strip() for k in raw_key.split(",") if k.strip()]
 
-        # High-performance fallback model chain
+        # High-performance fallback model chain (gemini-3.5-flash-lite has high quota)
         model_chain = [
-            configured_model,
             "gemini-3.5-flash-lite",
+            configured_model,
             "gemini-3.1-flash-lite",
             "gemini-3.6-flash",
             "gemini-flash-lite-latest",
@@ -677,11 +677,9 @@ class CaptionGenerator:
                     except Exception as e:
                         err_s = str(e)
                         if "429" in err_s or "RESOURCE_EXHAUSTED" in err_s:
-                            continue
-                        elif "503" in err_s or "504" in err_s or "UNAVAILABLE" in err_s:
-                            continue
-                        else:
-                            continue
+                            # Quota is exhausted for this key, break immediately to try next key
+                            break
+                        continue
 
         return None
 

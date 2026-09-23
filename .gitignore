@@ -33,6 +33,8 @@ history_*.json
 *.jpeg
 *.png
 !app_icon.ico
+!ai_cinema_backdrops/*.jpg
+!ai_cinema_backdrops/*.png
 completed/
 failed/
 videos/
