@@ -295,35 +295,80 @@ class MainWindow(QMainWindow):
         main_layout.addWidget(self.tabs)
 
     def create_dashboard_tab(self) -> QWidget:
+        # Wrap everything in a smooth QScrollArea to prevent clipping and clutter
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.NoFrame)
+        scroll.setStyleSheet("QScrollArea { background-color: transparent; border: none; }")
+
         widget = QWidget()
+        widget.setStyleSheet("background-color: transparent;")
         layout = QVBoxLayout(widget)
+        layout.setContentsMargins(12, 12, 12, 12)
+        layout.setSpacing(12)
 
-        # Top Bar: Facebook Login Status & Target Page Info
-        login_group = QGroupBox("การเชื่อมต่อบัญชี Facebook & Page เป้าหมาย (Meta Business Suite)")
-        login_layout = QVBoxLayout(login_group)
+        # -------------------------------------------------------------
+        # CARD 1: 🌐 ສະຖານະການເຊື່ອມຕໍ່ & ບັນຊີ (Connection & System Bar)
+        # -------------------------------------------------------------
+        card_conn = QFrame()
+        card_conn.setStyleSheet("QFrame { background-color: #181825; border: 1px solid #313244; border-radius: 8px; padding: 10px; }")
+        conn_layout = QVBoxLayout(card_conn)
+        conn_layout.setSpacing(8)
 
-        # Row 1: Status & Browser Controls
-        r1 = QHBoxLayout()
-        self.login_status_lbl = QLabel("🔴 สถานะ: ยังไม่ได้ตรวจสอบ Login")
+        # Row 1: Login Status + Browser Buttons
+        c_r1 = QHBoxLayout()
+        self.login_status_lbl = QLabel("🔴 ສະຖານະ: ຍັງບໍ່ໄດ້ກວດສອບ Login")
         self.login_status_lbl.setFont(QFont("Leelawadee UI", 10, QFont.Bold))
-        r1.addWidget(self.login_status_lbl)
+        c_r1.addWidget(self.login_status_lbl, stretch=2)
 
-        btn_dash_auto = QPushButton("🔄 ดึง Login จาก Browser (1-Click)")
-        btn_dash_auto.setStyleSheet("background-color: #7209b7; color: white; font-weight: bold; padding: 6px 14px; border-radius: 4px;")
+        btn_dash_auto = QPushButton("🔄 ດຶງ Cookies (1-Click)")
+        btn_dash_auto.setStyleSheet("background-color: #7209b7; color: white; font-weight: bold; padding: 6px 14px; border-radius: 6px;")
         btn_dash_auto.clicked.connect(self.auto_extract_cookies_from_browsers)
-        r1.addWidget(btn_dash_auto)
+        c_r1.addWidget(btn_dash_auto)
 
-        btn_open_inapp = QPushButton("🌐 เปิดหน้าเบราว์เซอร์ในตัว")
-        btn_open_inapp.setStyleSheet("background-color: #2e7d32; color: white; font-weight: bold; padding: 6px 14px; border-radius: 4px;")
+        btn_open_inapp = QPushButton("🌐 ເປີດ In-App Browser")
+        btn_open_inapp.setStyleSheet("background-color: #059669; color: white; font-weight: bold; padding: 6px 14px; border-radius: 6px;")
         btn_open_inapp.clicked.connect(lambda: self.tabs.setCurrentIndex(1))
-        r1.addWidget(btn_open_inapp)
+        c_r1.addWidget(btn_open_inapp)
 
         b_type = str(self.config.get("browser_type", "chromium")).lower()
         b_name = "Chromium" if b_type == "chromium" else ("Microsoft Edge" if b_type in ["msedge", "edge"] else "Google Chrome")
-        self.btn_login = QPushButton(f"🪟 หรือเปิด ({b_name})")
+        self.btn_login = QPushButton(f"🪟 ຫຼືເປີດ ({b_name})")
+        self.btn_login.setStyleSheet("background-color: #3b4252; color: #d8dee9; font-weight: bold; padding: 6px 12px; border-radius: 6px;")
         self.btn_login.clicked.connect(self.handle_manual_login)
-        r1.addWidget(self.btn_login)
-        login_layout.addLayout(r1)
+        c_r1.addWidget(self.btn_login)
+        conn_layout.addLayout(c_r1)
+
+        # Row 2: AI Status & Mobile Remote Link Bar
+        c_r2 = QHBoxLayout()
+        self.lbl_gemini_status = QLabel("🤖 Gemini AI: 🟢 ພ້ອມໃຊ້ງານ (Gemini 3.6 Flash)")
+        self.lbl_gemini_status.setStyleSheet("color: #a6e3a1; font-weight: bold; font-size: 11px;")
+        c_r2.addWidget(self.lbl_gemini_status)
+
+        c_r2.addSpacing(16)
+
+        cloud_u = self.config.get("web_monitor", {}).get("cloud_relay_url", "").strip()
+        if cloud_u:
+            self.lbl_cloud_status = QLabel(f"☁️ <b>Mobile Web (24/7):</b> <a href='{cloud_u}' style='color: #38bdf8;'>{cloud_u}</a> <span style='background: #065f46; color: #34d399; padding: 2px 6px; border-radius: 4px; font-size: 10px;'>🟢 Online</span>")
+        else:
+            self.lbl_cloud_status = QLabel("☁️ <b>Mobile Web:</b> <span style='color: #94a3b8;'>ຍັງບໍ່ໄດ້ເຊື່ອມ Render.com</span>")
+        self.lbl_cloud_status.setOpenExternalLinks(True)
+        self.lbl_cloud_status.setTextFormat(Qt.RichText)
+        c_r2.addWidget(self.lbl_cloud_status, stretch=2)
+
+        self.lbl_mobile_link = QLabel(f"🏠 Wi-Fi: <a href='{self.mobile_local_url}' style='color: #4cc9f0;'>{self.mobile_local_url}</a>")
+        self.lbl_mobile_link.setOpenExternalLinks(True)
+        self.lbl_mobile_link.setTextFormat(Qt.RichText)
+        self.lbl_mobile_link.setStyleSheet("font-size: 11px;")
+        c_r2.addWidget(self.lbl_mobile_link)
+
+        btn_qr_m = QPushButton("📲 QR Code ມືຖື")
+        btn_qr_m.setStyleSheet("background-color: #6366f1; color: white; font-weight: bold; padding: 4px 10px; border-radius: 4px; font-size: 11px;")
+        btn_qr_m.clicked.connect(self.show_mobile_qr_dialog)
+        c_r2.addWidget(btn_qr_m)
+
+        conn_layout.addLayout(c_r2)
+        layout.addWidget(card_conn)
 
         # Hidden/Backwards-compatible Page 1 line edits
         self.txt_dash_page_name = QLineEdit(self.config.get("page_name", ""))
@@ -331,25 +376,28 @@ class MainWindow(QMainWindow):
         self.txt_dash_page_id = QLineEdit(str(self.config.get("page_id", "")))
         self.txt_dash_page_id.setVisible(False)
 
-        # Row 2: Multi-Page Overview Card for all 4 Pages
-        pages_group = QGroupBox("🎯 ລາຍຊື່ 4 Facebook Pages ຕາມ 2 ກຸ່ມເນື້ອຫາ (Multi-Group Overview)")
-        pages_group.setStyleSheet("QGroupBox { font-weight: bold; border: 1px solid #45475a; border-radius: 6px; margin-top: 6px; padding: 8px; }")
+        # -------------------------------------------------------------
+        # CARD 2: 🎯 ລາຍຊື່ 4 Facebook Pages & ໂຟນເດີວິດີໂອ
+        # -------------------------------------------------------------
+        pages_group = QGroupBox("🎯 ລາຍຊື່ 4 Facebook Pages (Round-Robin ສະຫຼັບກຸ່ມອັດຕະໂນມັດ)")
+        pages_group.setStyleSheet("QGroupBox { font-weight: bold; border: 1px solid #313244; border-radius: 8px; margin-top: 6px; padding: 10px; }")
         pg_layout = QVBoxLayout(pages_group)
+        pg_layout.setSpacing(10)
 
         # 2 Columns for Groups
         pg_cols = QHBoxLayout()
 
         # Group 1 Card (3 Pages)
         self.card_g1 = QFrame()
-        self.card_g1.setStyleSheet("background: #181825; border: 1px solid #3b82f6; border-radius: 6px; padding: 8px;")
+        self.card_g1.setStyleSheet("background: #1e1e2e; border: 1px solid #2563eb; border-radius: 6px; padding: 8px;")
         g1_l = QVBoxLayout(self.card_g1)
         self.lbl_g1_hdr = QLabel("🔵 <b>ກຸ່ມ 1: 3 Pages ຮ່ວມກັນ</b> (ໜັງສັ້ນ/ຊີຣີສ໌ຈີນ AI [ເຕັມເລື່ອງ])")
-        self.lbl_g1_hdr.setStyleSheet("color: #89b4fa; font-size: 11px;")
+        self.lbl_g1_hdr.setStyleSheet("color: #89b4fa; font-size: 12px;")
         g1_l.addWidget(self.lbl_g1_hdr)
 
         self.lbl_dash_g1_p1 = QLabel("1️⃣ <b>Page 1:</b> ซี่รีย์จีน เต็มเรื่อง (ID: 1332661329928072)")
-        self.lbl_dash_g1_p2 = QLabel("2️⃣ <b>Page 2:</b> ຍັງບໍ່ໄດ້ໃສ່ຊື່ [⚠️ ຍັງບໍ່ມີ Page ID]")
-        self.lbl_dash_g1_p3 = QLabel("3️⃣ <b>Page 3:</b> ຍັງບໍ່ໄດ້ໃສ່ຊື່ [⚠️ ຍັງບໍ່ມີ Page ID]")
+        self.lbl_dash_g1_p2 = QLabel("2️⃣ <b>Page 2:</b> ติ่งซีรีส์จีน - ดูฟรีเต็มเรื่อง (ID: 1311717205364831)")
+        self.lbl_dash_g1_p3 = QLabel("3️⃣ <b>Page 3:</b> ສະຫະພັນບານເຕະແຂວງສະຫວັນນະເຂດ (ID: 104640754387216)")
         self.lbl_dash_g1_fld = QLabel("📁 Folder: Y:/Movies FB")
         self.lbl_dash_g1_fld.setStyleSheet("color: #94a3b8; font-size: 11px;")
 
@@ -360,13 +408,13 @@ class MainWindow(QMainWindow):
 
         # Group 2 Card (1 Page)
         self.card_g2 = QFrame()
-        self.card_g2.setStyleSheet("background: #181825; border: 1px solid #a855f7; border-radius: 6px; padding: 8px;")
+        self.card_g2.setStyleSheet("background: #1e1e2e; border: 1px solid #a855f7; border-radius: 6px; padding: 8px;")
         g2_l = QVBoxLayout(self.card_g2)
         self.lbl_g2_hdr = QLabel("🟣 <b>ກຸ່ມ 2: 1 Page ສະເພາະຕົວ</b> (ນ້ອງເຂົ້າຫອມ ສາວຂີ້ດື້)")
-        self.lbl_g2_hdr.setStyleSheet("color: #cba6f7; font-size: 11px;")
+        self.lbl_g2_hdr.setStyleSheet("color: #cba6f7; font-size: 12px;")
         g2_l.addWidget(self.lbl_g2_hdr)
 
-        self.lbl_dash_g2_p1 = QLabel("4️⃣ <b>Page 4:</b> ນ້ອງເຂົ້າຫອມ [⚠️ ຍັງບໍ່ມີ Page ID]")
+        self.lbl_dash_g2_p1 = QLabel("4️⃣ <b>Page 4:</b> น้องข้าวหอม สาวขี้ดื้อ (ID: 1384777811375983)")
         self.lbl_dash_g2_fld = QLabel("📁 Folder: Y:/Movies FB Dedicated")
         self.lbl_dash_g2_fld.setStyleSheet("color: #94a3b8; font-size: 11px;")
         for w in [self.lbl_dash_g2_p1, self.lbl_dash_g2_fld]:
@@ -377,241 +425,198 @@ class MainWindow(QMainWindow):
 
         pg_layout.addLayout(pg_cols)
 
-        # Actions & Verify Row
+        # Quick Group Switcher & Folder Controls Row
+        fld_row = QHBoxLayout()
+        fld_row.addWidget(QLabel("📁 ໂຟນເດີວິດີໂອ:"))
+        self.txt_folder = QLineEdit(self.config.get("video_folder", "./videos"))
+        self.txt_folder.setMinimumHeight(30)
+        self.txt_folder.textChanged.connect(self.on_folder_changed)
+        fld_row.addWidget(self.txt_folder, stretch=3)
+
+        btn_switch_g1 = QPushButton("🔵 ກຸ່ມ 1")
+        btn_switch_g1.setStyleSheet("background-color: #1e3a8a; color: #93c5fd; font-weight: bold; padding: 5px 10px; border-radius: 4px;")
+        btn_switch_g1.clicked.connect(lambda: self.switch_active_dashboard_group(0))
+        fld_row.addWidget(btn_switch_g1)
+
+        btn_switch_g2 = QPushButton("🟣 ກຸ່ມ 2")
+        btn_switch_g2.setStyleSheet("background-color: #581c87; color: #d8b4fe; font-weight: bold; padding: 5px 10px; border-radius: 4px;")
+        btn_switch_g2.clicked.connect(lambda: self.switch_active_dashboard_group(1))
+        fld_row.addWidget(btn_switch_g2)
+
+        btn_browse = QPushButton("📁 ເລືອກ...")
+        btn_browse.clicked.connect(self.browse_folder)
+        fld_row.addWidget(btn_browse)
+
+        btn_open_folder = QPushButton("📂 ເປີດ")
+        btn_open_folder.clicked.connect(self.open_current_folder)
+        fld_row.addWidget(btn_open_folder)
+
+        btn_refresh = QPushButton("🔄 ອັບເດດຄິວ")
+        btn_refresh.clicked.connect(self.manual_refresh_queue)
+        fld_row.addWidget(btn_refresh)
+        pg_layout.addLayout(fld_row)
+
+        # Verification Row
         pg_act_row = QHBoxLayout()
-        btn_config_pages = QPushButton("⚙️ ແກ້ໄຂ / ໃສ່ Page ID ທັງ 4 Pages (ໄປໜ້າຕັ້ງຄ່າ)")
+        btn_config_pages = QPushButton("⚙️ ແກ້ໄຂ / ຕັ້ງຄ່າ 4 Pages")
         btn_config_pages.setStyleSheet("background-color: #2563eb; color: white; font-weight: bold; padding: 5px 12px; border-radius: 4px;")
         btn_config_pages.clicked.connect(lambda: self.tabs.setCurrentIndex(4))
         pg_act_row.addWidget(btn_config_pages)
 
-        pg_act_row.addWidget(QLabel("ກວດສອບ Page:"))
+        pg_act_row.addWidget(QLabel("ກວດສອບ:"))
         self.cmb_dash_verify_page = QComboBox()
         self.cmb_dash_verify_page.setStyleSheet("background: #181825; color: #fab387; font-weight: bold; padding: 4px 8px; border: 1px solid #45475a; border-radius: 4px;")
         pg_act_row.addWidget(self.cmb_dash_verify_page, stretch=1)
 
-        self.btn_verify_page = QPushButton("🔍 ກວດສອບ Page (Verify)")
+        self.btn_verify_page = QPushButton("🔍 Verify Page")
         self.btn_verify_page.setStyleSheet("background-color: #0d9488; color: white; font-weight: bold; padding: 5px 12px; border-radius: 4px;")
         self.btn_verify_page.clicked.connect(self.verify_selected_dashboard_page)
         pg_act_row.addWidget(self.btn_verify_page)
 
+        self.lbl_verify_result = QLabel("🛡️ Strict Page Guard: ພ້ອມກວດສອບ Page ກ່ອນອັບໂຫຼດ")
+        self.lbl_verify_result.setStyleSheet("color: #a6adc8; font-size: 11px;")
+        pg_act_row.addWidget(self.lbl_verify_result, stretch=1)
+
         pg_layout.addLayout(pg_act_row)
-        login_layout.addWidget(pages_group)
+        layout.addWidget(pages_group)
 
-        self.lbl_verify_result = QLabel("🛡️ ລະບົບປ້ອງກັນ: ພ້ອມກວດສອບ Page ກ່ອນເລີ່ມອັບໂຫຼດ (ປ້ອງກັນລົງຜິດເພຈ 100%)")
-        self.lbl_verify_result.setStyleSheet("color: #a6adc8; font-size: 11px; padding-left: 4px;")
-        login_layout.addWidget(self.lbl_verify_result)
+        # -------------------------------------------------------------
+        # CARD 3: 🚀 ການຄວບຄຸມ & ຄວາມຄືບໜ້າ (Control Center & Progress)
+        # -------------------------------------------------------------
+        ctrl_card = QGroupBox("🚀 ສູນຄວບຄຸມ ແລະ ຄວາມຄືບໜ້າ (Control Center)")
+        ctrl_card.setStyleSheet("QGroupBox { font-weight: bold; border: 1px solid #313244; border-radius: 8px; margin-top: 6px; padding: 10px; }")
+        ctrl_layout = QVBoxLayout(ctrl_card)
+        ctrl_layout.setSpacing(10)
 
-        layout.addWidget(login_group)
-
-        # Video Folder Selection
-        folder_group = QGroupBox("ໂຟນເດີວິດີໂອ (Video Source Folder)")
-        folder_v_layout = QVBoxLayout(folder_group)
-
-        # Quick Group Switcher Row
-        grp_btn_row = QHBoxLayout()
-        grp_btn_row.addWidget(QLabel("🗂️ ສະຫຼັບເບິ່ງ Folder ກຸ່ມ:"))
-        btn_switch_g1 = QPushButton("🔵 ກຸ່ມ 1 (3 Pages ຮ່ວມກັນ)")
-        btn_switch_g1.setStyleSheet("background-color: #1e3a8a; color: #93c5fd; font-weight: bold; padding: 4px 12px; border-radius: 4px;")
-        btn_switch_g1.clicked.connect(lambda: self.switch_active_dashboard_group(0))
-        btn_switch_g2 = QPushButton("🟣 ກຸ່ມ 2 (1 Page ສະເພາະຕົວ)")
-        btn_switch_g2.setStyleSheet("background-color: #581c87; color: #d8b4fe; font-weight: bold; padding: 4px 12px; border-radius: 4px;")
-        btn_switch_g2.clicked.connect(lambda: self.switch_active_dashboard_group(1))
-        grp_btn_row.addWidget(btn_switch_g1)
-        grp_btn_row.addWidget(btn_switch_g2)
-        grp_btn_row.addStretch()
-        folder_v_layout.addLayout(grp_btn_row)
-
-        folder_layout = QHBoxLayout()
-        self.txt_folder = QLineEdit(self.config.get("video_folder", "./videos"))
-        self.txt_folder.textChanged.connect(self.on_folder_changed)
-        btn_browse = QPushButton("📁 ເລືອກ Folder...")
-        btn_browse.clicked.connect(self.browse_folder)
-        btn_open_folder = QPushButton("📂 ເປີດ Folder")
-        btn_open_folder.clicked.connect(self.open_current_folder)
-        btn_refresh = QPushButton("🔄 ອັບເດດຄິວ")
-        btn_refresh.clicked.connect(self.manual_refresh_queue)
-
-        folder_layout.addWidget(self.txt_folder)
-        folder_layout.addWidget(btn_browse)
-        folder_layout.addWidget(btn_open_folder)
-        folder_layout.addWidget(btn_refresh)
-        folder_v_layout.addLayout(folder_layout)
-        layout.addWidget(folder_group)
-
-        # Stats Cards
+        # 4 Stats Badges
         stats_layout = QHBoxLayout()
-        self.lbl_stat_total = QLabel("วิดีโอทั้งหมด: 0")
-        self.lbl_stat_pending = QLabel("รออัปโหลด: 0")
-        self.lbl_stat_duplicates = QLabel("ไฟล์ซ้ำ (ข้าม): 0")
-        self.lbl_stat_uploaded = QLabel("อัปโหลดสำเร็จแล้ว: 0")
+        self.lbl_stat_total = QLabel("📦 ທັງໝົດ: 0")
+        self.lbl_stat_pending = QLabel("⏳ ລໍຖ້າ: 0")
+        self.lbl_stat_duplicates = QLabel("⚠️ ໄຟລ໌ຊ້ຳ: 0")
+        self.lbl_stat_uploaded = QLabel("✅ ສຳເລັດ: 0")
         for lbl in [self.lbl_stat_total, self.lbl_stat_pending, self.lbl_stat_duplicates, self.lbl_stat_uploaded]:
-            lbl.setStyleSheet("background: #2b2d42; color: #edf2f4; padding: 8px 14px; border-radius: 6px; font-weight: bold;")
+            lbl.setStyleSheet("background: #181825; color: #f1f5f9; padding: 8px 14px; border-radius: 6px; font-weight: bold; border: 1px solid #313244;")
             stats_layout.addWidget(lbl)
-        layout.addLayout(stats_layout)
+        ctrl_layout.addLayout(stats_layout)
 
-        # AI Status
-        self.lbl_gemini_status = QLabel("🤖 Gemini AI Status: 🟢 พร้อมใช้งาน (Gemini 3.6 Flash)")
-        self.lbl_gemini_status.setStyleSheet("color: #a6e3a1; font-weight: bold; padding: 4px;")
-        layout.addWidget(self.lbl_gemini_status)
-
-        # Live Upload Progress Group
-        prog_group = QGroupBox("📊 ສະຖານະ & ຄວາມຄືບໜ້າການອັບໂຫຼດ (Live Upload Progress)")
-        prog_layout = QVBoxLayout(prog_group)
-
+        # Live Progress Bar
         self.upload_progress_lbl = QLabel("⏳ ສະຖານະ: ພ້ອມເຮັດວຽກ (Ready)")
-        self.upload_progress_lbl.setStyleSheet("font-size: 13px; font-weight: bold; color: #89b4fa; padding: 2px;")
-        prog_layout.addWidget(self.upload_progress_lbl)
+        self.upload_progress_lbl.setStyleSheet("font-size: 13px; font-weight: bold; color: #89b4fa;")
+        ctrl_layout.addWidget(self.upload_progress_lbl)
 
         self.upload_progress_bar = QProgressBar()
         self.upload_progress_bar.setRange(0, 100)
         self.upload_progress_bar.setValue(0)
         self.upload_progress_bar.setTextVisible(True)
-        self.upload_progress_bar.setFixedHeight(28)
+        self.upload_progress_bar.setFixedHeight(26)
         self.upload_progress_bar.setStyleSheet("""
             QProgressBar {
-                background-color: #1e1e2e;
+                background-color: #11111b;
                 border: 1px solid #45475a;
                 border-radius: 6px;
                 text-align: center;
                 color: #ffffff;
                 font-weight: bold;
-                font-size: 13px;
+                font-size: 12px;
             }
             QProgressBar::chunk {
-                background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #4361ee, stop:0.5 #7209b7, stop:1 #4cc9f0);
+                background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #2563eb, stop:0.5 #7c3aed, stop:1 #06b6d4);
                 border-radius: 5px;
             }
         """)
-        prog_layout.addWidget(self.upload_progress_bar)
-        layout.addWidget(prog_group)
+        ctrl_layout.addWidget(self.upload_progress_bar)
 
-        # Mobile Remote Monitor Group
-        mobile_group = QGroupBox("📱 ລະບົບຄວບຄຸມ ແລະ ຈັດການຜ່ານໂທລະສັບມືຖື (Mobile Remote Manager)")
-        mobile_layout = QVBoxLayout(mobile_group)
-
-        # Row 1: Cloud Web Dashboard (Render.com - 24/7)
-        cloud_u = self.config.get("web_monitor", {}).get("cloud_relay_url", "").strip()
-        m_row_cloud = QHBoxLayout()
-        if cloud_u:
-            self.lbl_cloud_status = QLabel(f"☁️ <b>ເວັບຖາວອນ (24/7):</b> <a href='{cloud_u}' style='color: #38bdf8; font-weight: bold;'>{cloud_u}</a> <span style='background: #065f46; color: #34d399; padding: 2px 6px; border-radius: 4px; font-size: 10px; font-weight: bold;'>🟢 ພ້ອມໃຊ້ງານ</span>")
-        else:
-            self.lbl_cloud_status = QLabel("☁️ <b>ເວັບຖາວອນ (Render.com):</b> <span style='color: #94a3b8;'>ຍັງບໍ່ໄດ້ເຊື່ອມຕໍ່ (ກົດຕັ້ງຄ່າເພື່ອເອົາຂຶ້ນເວັບແທ້ 24/7 ຟຣີ)</span>")
-        self.lbl_cloud_status.setOpenExternalLinks(True)
-        self.lbl_cloud_status.setTextFormat(Qt.RichText)
-        m_row_cloud.addWidget(self.lbl_cloud_status, stretch=2)
-
-        btn_setup_cloud = QPushButton("⚙️ ຕັ້ງຄ່າ Cloud Web")
-        btn_setup_cloud.setStyleSheet("background-color: #2563eb; color: white; font-weight: bold; padding: 5px 12px; border-radius: 4px;")
-        btn_setup_cloud.clicked.connect(lambda: self.tabs.setCurrentIndex(4))
-        m_row_cloud.addWidget(btn_setup_cloud)
-
-        btn_copy_cloud = QPushButton("📋 ຄັດລອກ Cloud Link")
-        btn_copy_cloud.setStyleSheet("background-color: #0284c7; color: white; font-weight: bold; padding: 5px 12px; border-radius: 4px;")
-        btn_copy_cloud.clicked.connect(self.copy_cloud_link)
-        m_row_cloud.addWidget(btn_copy_cloud)
-        mobile_layout.addLayout(m_row_cloud)
-
-        # Row 2: Local Wi-Fi Access + QR Code
-        m_row1 = QHBoxLayout()
-        self.lbl_mobile_link = QLabel(f"🏠 <b>ເບິ່ງໃນ Wi-Fi (ເຮືອນ/ຫ້ອງການ):</b> <a href='{self.mobile_local_url}' style='color: #4cc9f0; font-weight: bold;'>{self.mobile_local_url}</a>")
-        self.lbl_mobile_link.setOpenExternalLinks(True)
-        self.lbl_mobile_link.setTextFormat(Qt.RichText)
-        m_row1.addWidget(self.lbl_mobile_link, stretch=2)
-
-        btn_copy_m = QPushButton("📋 ຄັດລອກ Wi-Fi Link")
-        btn_copy_m.setStyleSheet("background-color: #3b4252; color: #88c0d0; font-weight: bold; padding: 5px 12px; border-radius: 4px;")
-        btn_copy_m.clicked.connect(self.copy_mobile_link)
-        m_row1.addWidget(btn_copy_m)
-
-        btn_qr_m = QPushButton("📲 ສະແດງ QR Code ສຳລັບມືຖື")
-        btn_qr_m.setStyleSheet("background-color: #7209b7; color: white; font-weight: bold; padding: 5px 14px; border-radius: 4px;")
-        btn_qr_m.clicked.connect(self.show_mobile_qr_dialog)
-        m_row1.addWidget(btn_qr_m)
-        mobile_layout.addLayout(m_row1)
-
-        layout.addWidget(mobile_group)
-
-        # Controls Group (2 แถว ไม่ให้โดนบีบ)
-        controls_group = QGroupBox("การตั้งค่าการโพสต์ และ ปุ่มควบคุม")
-        ctrl_layout = QVBoxLayout(controls_group)
-
-        # แถวที่ 1: Mode & Delay
-        mode_row1 = QHBoxLayout()
-        self.rb_publish_now = QRadioButton("🚀 โพสต์ทันที (Publish Now)")
-        self.rb_schedule = QRadioButton("⏰ ตั้งเวลา (Schedule Posts)")
+        # Settings options row
+        opt_row = QHBoxLayout()
+        self.rb_publish_now = QRadioButton("🚀 ໂພສທັນທີ")
+        self.rb_schedule = QRadioButton("⏰ ຕັ້ງເວລາ")
         if self.config.get("post_mode", "now") == "schedule":
             self.rb_schedule.setChecked(True)
         else:
             self.rb_publish_now.setChecked(True)
+        opt_row.addWidget(self.rb_publish_now)
+        opt_row.addWidget(self.rb_schedule)
 
-        mode_row1.addWidget(self.rb_publish_now)
-        mode_row1.addWidget(self.rb_schedule)
-        mode_row1.addSpacing(20)
-
-        mode_row1.addWidget(QLabel("พักระหว่างคลิป (Delay นาที):"))
+        opt_row.addSpacing(15)
+        opt_row.addWidget(QLabel("ພັກລະຫວ່າງຄລິບ:"))
         self.spin_delay = QSpinBox()
         self.spin_delay.setRange(1, 180)
-        self.spin_delay.setValue(int(self.config.get("delay_between_posts_minutes", 20)))
-        mode_row1.addWidget(self.spin_delay)
-        mode_row1.addStretch()
-        ctrl_layout.addLayout(mode_row1)
+        self.spin_delay.setValue(int(self.config.get("delay_between_posts_minutes", 60)))
+        self.spin_delay.setSuffix(" ນາທີ")
+        opt_row.addWidget(self.spin_delay)
 
-        # แถวที่ 2: Headless & AI Label & Continuous Watch Checkbox
-        mode_row2 = QHBoxLayout()
-        self.chk_headless = QCheckBox("Headless (ไม่แสดงหน้าต่าง Browser)")
-        self.chk_headless.setChecked(self.config.get("headless", False))
-        mode_row2.addWidget(self.chk_headless)
+        opt_row.addSpacing(15)
+        self.chk_headless = QCheckBox("Headless")
+        self.chk_headless.setChecked(self.config.get("headless", True))
+        opt_row.addWidget(self.chk_headless)
 
-        self.chk_mark_ai = QCheckBox("🏷️ ติ๊กเลือก 'เนื้อหา AI' อัตโนมัติ")
+        self.chk_mark_ai = QCheckBox("🏷️ ເນື້ອຫາ AI")
         self.chk_mark_ai.setChecked(self.config.get("mark_as_ai_content", True))
         self.chk_mark_ai.setStyleSheet("color: #89b4fa; font-weight: bold;")
-        mode_row2.addWidget(self.chk_mark_ai)
+        opt_row.addWidget(self.chk_mark_ai)
 
-        self.chk_auto_watch = QCheckBox("🔄 ติดตามอัปโหลดอัตโนมัติเมื่อมีไฟล์ใหม่ (Continuous Watch)")
+        self.chk_auto_watch = QCheckBox("🔄 Continuous Watch")
         self.chk_auto_watch.setChecked(self.config.get("auto_watch_new_files", True))
         self.chk_auto_watch.setStyleSheet("color: #a6e3a1; font-weight: bold;")
-        mode_row2.addWidget(self.chk_auto_watch)
-        mode_row2.addStretch()
-        ctrl_layout.addLayout(mode_row2)
+        opt_row.addWidget(self.chk_auto_watch)
+        opt_row.addStretch()
+        ctrl_layout.addLayout(opt_row)
 
-        # Big Buttons Row
+        # Big Action Buttons Row
         btn_row = QHBoxLayout()
-        self.btn_start = QPushButton("▶️ เริ่มต้น Auto Upload (Start)")
-        self.btn_start.setStyleSheet("background-color: #2a9d8f; color: white; font-weight: bold; font-size: 14px; padding: 10px;")
+        self.btn_start = QPushButton("▶️ ເລີ່ມ Auto Upload (Start)")
+        self.btn_start.setStyleSheet("background-color: #059669; color: white; font-weight: bold; font-size: 13px; padding: 10px; border-radius: 6px;")
         self.btn_start.clicked.connect(self.start_upload)
 
-        self.btn_pause = QPushButton("⏸️ พักชั่วคราว (Pause)")
+        self.btn_pause = QPushButton("⏸️ ພັກຊົ່ວຄາວ (Pause)")
         self.btn_pause.setEnabled(False)
+        self.btn_pause.setStyleSheet("background-color: #d97706; color: white; font-weight: bold; font-size: 13px; padding: 10px; border-radius: 6px;")
         self.btn_pause.clicked.connect(self.pause_upload)
 
-        self.btn_stop = QPushButton("🛑 หยุด (Stop)")
+        self.btn_stop = QPushButton("🛑 ຢຸດການເຮັດວຽກ (Stop)")
         self.btn_stop.setEnabled(False)
-        self.btn_stop.setStyleSheet("background-color: #e76f51; color: white; font-weight: bold; font-size: 14px; padding: 10px;")
+        self.btn_stop.setStyleSheet("background-color: #dc2626; color: white; font-weight: bold; font-size: 13px; padding: 10px; border-radius: 6px;")
         self.btn_stop.clicked.connect(self.stop_upload)
 
-        btn_row.addWidget(self.btn_start)
-        btn_row.addWidget(self.btn_pause)
-        btn_row.addWidget(self.btn_stop)
+        btn_dash_cta = QPushButton("📸 Post CTA ມື້ນີ້ (AI)")
+        btn_dash_cta.setStyleSheet("background-color: #7c3aed; color: white; font-weight: bold; font-size: 13px; padding: 10px; border-radius: 6px;")
+        btn_dash_cta.setToolTip("ສັ່ງ Gen ຮູບພາບ AI ແລະ ໂພສເຊີນຊວນຕິດຕາມ Page ທັນທີ")
+        btn_dash_cta.clicked.connect(self.execute_remote_cta)
+
+        btn_row.addWidget(self.btn_start, stretch=2)
+        btn_row.addWidget(self.btn_pause, stretch=1)
+        btn_row.addWidget(self.btn_stop, stretch=1)
+        btn_row.addWidget(btn_dash_cta, stretch=2)
         ctrl_layout.addLayout(btn_row)
 
-        layout.addWidget(controls_group)
+        layout.addWidget(ctrl_card)
 
-        # Realtime Log Console
-        log_group = QGroupBox("Real-time Log บันทึกการทำงาน")
+        # -------------------------------------------------------------
+        # CARD 4: 📜 Real-time Execution Logs
+        # -------------------------------------------------------------
+        log_group = QGroupBox("📜 Real-time Execution Log (ບັນທຶກການເຮັດວຽກສົດ)")
+        log_group.setStyleSheet("QGroupBox { font-weight: bold; border: 1px solid #313244; border-radius: 8px; margin-top: 6px; padding: 8px; }")
         log_layout = QVBoxLayout(log_group)
 
         self.txt_log = QTextEdit()
         self.txt_log.setReadOnly(True)
-        self.txt_log.setFont(QFont("Consolas", 10))
-        self.txt_log.setStyleSheet("background-color: #1e1e1e; color: #d4d4d4; border-radius: 4px;")
+        self.txt_log.setFont(QFont("Consolas", 9))
+        self.txt_log.setMinimumHeight(160)
+        self.txt_log.setStyleSheet("background-color: #11111b; color: #cdd6f4; border-radius: 6px; border: 1px solid #313244; padding: 6px;")
         log_layout.addWidget(self.txt_log)
 
-        btn_clear_log = QPushButton("ล้าง Log")
+        log_act_row = QHBoxLayout()
+        btn_clear_log = QPushButton("🗑️ ລ້າງ Log")
+        btn_clear_log.setStyleSheet("background-color: #313244; color: #a6adc8; padding: 4px 12px; border-radius: 4px;")
         btn_clear_log.clicked.connect(self.txt_log.clear)
-        log_layout.addWidget(btn_clear_log)
+        log_act_row.addStretch()
+        log_act_row.addWidget(btn_clear_log)
+        log_layout.addLayout(log_act_row)
 
         layout.addWidget(log_group)
-        return widget
+
+        scroll.setWidget(widget)
+        return scroll
 
     def update_account_display(self, source_info: str = ""):
         page_name = self.config.get("page_name", "").strip()
@@ -2230,9 +2235,20 @@ class MainWindow(QMainWindow):
                 wm.CLOUD_SYNC_MGR.start()
 
         save_config(self.config)
+        # Hot-reload into active background worker if running
+        if hasattr(self, 'worker') and self.worker and self.worker.isRunning():
+            try:
+                self.worker.config.update(self.config)
+                if hasattr(self.worker, 'engine') and self.worker.engine:
+                    self.worker.engine.config.update(self.config)
+            except Exception:
+                pass
         self.update_account_display()
         self.update_dashboard_pages_display()
-        QMessageBox.information(self, "ສຳເລັດ", "ບັນທຶກການຕັ້ງຄ່າທັງໝົດຮຽບຮ້ອຍແລ້ວ!")
+        QMessageBox.information(
+            self, "ສຳເລັດ", 
+            "✅ ບັນທຶກການຕັ້ງຄ່າທັງໝົດຮຽບຮ້ອຍແລ້ວ!\n\n💡 ລະບົບອັບເດດຄ່າໃໝ່ທັນທີ (Hot-Reload) ໂດຍບໍ່ຈຳເປັນຕ້ອງ Restart ໂປຣແກຣມ."
+        )
 
     def open_cloud_dashboard_url(self):
         url = self.txt_cloud_relay_url.text().strip() if hasattr(self, 'txt_cloud_relay_url') else ""

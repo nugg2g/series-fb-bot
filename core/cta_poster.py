@@ -211,22 +211,39 @@ class CtaPoster:
 
             # 3. Add Photo / File Upload
             file_input = page.locator('input[type="file"][accept*="image"], input[type="file"]').first
+            uploaded_via_input = False
             if file_input.count() > 0:
-                file_input.set_input_files(image_path)
-                self.log("📁 ส่งไฟล์รูปภาพเข้า file input สำเร็จ.")
-            else:
-                add_photo_btn = page.get_by_text("เพิ่มรูปภาพ", exact=True).or_(
-                    page.get_by_text("Add photo", exact=True)
-                ).or_(
-                    page.get_by_text("เพิ่มรูปภาพ/วิดีโอ", exact=True)
-                ).first
-                if add_photo_btn.is_visible(timeout=5000):
-                    with page.expect_file_chooser(timeout=10000) as fc_info:
-                        add_photo_btn.click()
-                    fc_info.value.set_files(image_path)
-                    self.log("📁 ส่งรูปภาพผ่าน File Chooser สำเร็จ.")
+                try:
+                    file_input.set_input_files(image_path)
+                    self.log("📁 ສົ່ງໄຟລ໌ຮູບພາບເຂົ້າ file input ສຳເລັດ.")
+                    uploaded_via_input = True
+                except Exception:
+                    pass
+
+            if not uploaded_via_input:
+                import re
+                add_photo_btn = (
+                    page.get_by_text(re.compile(r"Add photo|เพิ่มรูปภาพ|ເພີ່ມຮູບ", re.IGNORECASE)).or_(
+                        page.locator('button:has-text("photo"), div[role="button"]:has-text("photo")')
+                    ).or_(
+                        page.locator('button:has-text("รูปภาพ"), div[role="button"]:has-text("รูปภาพ")')
+                    ).first
+                )
+                if add_photo_btn.is_visible(timeout=7000):
+                    try:
+                        with page.expect_file_chooser(timeout=8000) as fc_info:
+                            add_photo_btn.click()
+                        fc_info.value.set_files(image_path)
+                        self.log("📁 ສົ່ງຮູບພາບຜ່ານ File Chooser ສຳເລັດ.")
+                    except Exception as ex_fc:
+                        file_input = page.locator('input[type="file"]').first
+                        if file_input.count() > 0:
+                            file_input.set_input_files(image_path)
+                            self.log("📁 ສົ່ງໄຟລ໌ຮູບພາບເຂົ້າ file input ຫຼັງກົດປຸ່ມສຳເລັດ.")
+                        else:
+                            raise Exception(f"ບໍ່ສາມາດເລືອກໄຟລ໌ຮູບພາບໄດ້: {ex_fc}")
                 else:
-                    raise Exception("ไม่พบช่องทางอัปโหลดรูปภาพในหน้า Meta Business Suite Composer")
+                    raise Exception("ບໍ່ພົບຊ່ອງທາງອັບໂຫຼດຮູບພາບໃນ Meta Business Suite Composer")
 
             time.sleep(3)
             uploader.dismiss_popups()

@@ -1,6 +1,7 @@
 import os
 import time
 import random
+import glob
 import threading
 from datetime import datetime, timedelta
 from typing import Dict, Any, Callable, Optional
@@ -87,7 +88,19 @@ class ReelUploadEngine:
     def is_running(self) -> bool:
         return self._is_running
 
+    def reload_config_from_disk(self):
+        """Hot-reloads configuration directly from config.json without requiring program restart."""
+        cfg_path = os.path.abspath("./config.json")
+        if os.path.exists(cfg_path):
+            try:
+                with open(cfg_path, "r", encoding="utf-8") as f:
+                    new_cfg = json.load(f)
+                    self.config.update(new_cfg)
+            except Exception:
+                pass
+
     def _get_execution_groups(self) -> List[Dict[str, Any]]:
+        self.reload_config_from_disk()
         raw_groups = self.config.get("page_groups", [])
         if raw_groups:
             return raw_groups
@@ -171,8 +184,10 @@ class ReelUploadEngine:
                             "page_id": str(self.config.get("page_id", ""))
                         }]
 
-                    # Check pending videos for this specific group
-                    pending_videos = self.queue_mgr.get_pending_videos(target_folder=g_folder, completed_folder=g_completed)
+                    # Check pending videos for this specific group (including backfill for new pages)
+                    pending_videos = self.queue_mgr.get_pending_videos(
+                        target_folder=g_folder, completed_folder=g_completed, target_pages=g_pages
+                    )
                     if not pending_videos:
                         continue
 
@@ -185,17 +200,26 @@ class ReelUploadEngine:
                         if not self._is_running:
                             break
 
-                    is_dup, dup_reason = self.queue_mgr.is_already_uploaded(video_path, completed_folder=g_completed)
-                    if is_dup:
-                        self.log(f"⚠️ [ລະວັງໄຟລ໌ຊ້ຳ] ຂ້າມໄຟລ໌ '{filename}': {dup_reason}")
+                    # Smart per-page duplicate check: ກວດວ່າ Page ໃດລົງແລ້ວ Page ໃດຍັງບໍ່ລົງ
+                    needs_upload, pages_todo, pages_done = self.queue_mgr.needs_upload_to_pages(
+                        video_path, g_pages, completed_folder=g_completed
+                    )
+
+                    if not needs_upload:
+                        self.log(f"⏭️ ຂ້າມ '{filename}': ລົງຄົບທຸກ {len(g_pages)} Pages ແລ້ວ")
                         continue
+
+                    if pages_done:
+                        done_names = [p.get("page_name", "") for p in pages_done]
+                        todo_names = [p.get("page_name", "") for p in pages_todo]
+                        self.log(f"🔍 '{filename}': ລົງແລ້ວ {len(pages_done)} Pages ({', '.join(done_names)}), ຍັງເຫຼືອ {len(pages_todo)} Pages ({', '.join(todo_names)})")
 
                     total_uploaded_in_session += 1
                     any_video_processed = True
 
                     self.log(f"\n=======================================================")
                     self.log(f"▶️ [ຄລິບທີ {total_uploaded_in_session}] [{g_name} | ໝວດ: {g_content_type}] {filename}")
-                    self.log(f"📁 Folder: {g_folder} | ເປົ້າໝາຍ: {len(g_pages)} Pages")
+                    self.log(f"📁 Folder: {g_folder} | ເປົ້າໝາຍ: {len(pages_todo)}/{len(g_pages)} Pages")
                     self.log(f"=======================================================")
 
                     # Build caption with this group's custom template, hashtags, prefix & content_type
@@ -238,10 +262,10 @@ class ReelUploadEngine:
                         else:
                             current_schedule_time += timedelta(hours=schedule_interval)
 
-                    # Upload to each page in this group
-                    pages_results = []
+                    # Upload only to pages that don't have this video yet
+                    pages_results = list(pages_done)  # Keep already-done pages in results
 
-                    for p_idx, page_info in enumerate(g_pages, start=1):
+                    for p_idx, page_info in enumerate(pages_todo, start=1):
                         curr_page_name = page_info.get("page_name", "")
                         curr_page_id = str(page_info.get("page_id", ""))
 
@@ -395,15 +419,23 @@ class ReelUploadEngine:
                         for p_res in failed_pages:
                             self.notifier.notify_upload_failed(title, p_res.get("page_name", ""), p_res.get("error", "Unknown error"))
 
-                    # Follower CTA Photo Post trigger
+                    # Follower CTA Photo Post trigger (1 post per day per page)
                     cta_enabled = self.config.get("cta_post_enabled", True)
-                    cta_interval = int(self.config.get("cta_post_interval_reels", 5))
-                    if cta_enabled and (total_uploaded_in_session % cta_interval == 0):
-                        self.log(f"\n📢 [Creator Goal] ຄົບຮອບອັບໂຫຼດ {total_uploaded_in_session} ຄລິບ -> ກຳລັງໂພສຮູບພາບເຊີນຊວນກົດຕິດຕາມ Page...")
-                        try:
-                            self.post_follower_cta(page=page, target_pages=g_pages)
-                        except Exception as e:
-                            self.log(f"Warning posting CTA photo: {e}")
+                    if cta_enabled:
+                        pages_needing_cta = [
+                            p for p in g_pages 
+                            if not self.queue_mgr.has_posted_cta_today(str(p.get("page_id", "")))
+                        ]
+                        if pages_needing_cta:
+                            self.log(f"\n📢 [Creator Goal - ມື້ລະ 1 Post] ກຳລັງໂພສຮູບພາບ AI ເຊີນຊວນຕິດຕາມສຳລັບ {len(pages_needing_cta)} Pages ທີ່ຍັງບໍ່ໄດ້ໂພສມື້ນີ້...")
+                            try:
+                                self.post_follower_cta(
+                                    page=page, 
+                                    target_pages=pages_needing_cta, 
+                                    group_content_type=g_content_type
+                                )
+                            except Exception as e:
+                                self.log(f"Warning posting CTA photo: {e}")
 
                     # Update stats
                     self.update_status(self.queue_mgr.get_stats())
@@ -448,7 +480,7 @@ class ReelUploadEngine:
                             time.sleep(1)
                             if not self._is_running:
                                 break
-                        time.sleep(1)
+                            time.sleep(1)
 
             self.log("🏁 ສິ້ນສຸດການເຮັດວຽກຂອງລະບົບອັບໂຫຼດ.")
             WEB_STATE.update(status="finished", progress_pct=100, progress_text="ອັບໂຫຼດຄົບຮຽບຮ້ອຍ (Done)")
@@ -460,36 +492,15 @@ class ReelUploadEngine:
             self._is_running = False
             self.update_status(self.queue_mgr.get_stats())
 
-    def post_follower_cta(self, page=None, target_pages=None) -> bool:
+    def post_follower_cta(self, page=None, target_pages=None, group_content_type: str = "china_drama", force: bool = False) -> bool:
         """
         Posts a Follower CTA photo post to target page(s) to fulfill Facebook creator goals.
-        Generates brand new unique AI images & captions on the fly!
+        Enforces 1 post/day per page (unless force=True).
+        Tailors image and caption for China Drama vs. Nong Khao Hom!
         """
         from core.cta_poster import CtaPoster
         if not self.cta_poster:
             self.cta_poster = CtaPoster(self.config, log_cb=self.log, progress_cb=self.update_progress)
-
-        ai_gen_enabled = self.config.get("ai_image_gen", {}).get("enabled", True)
-        ai_caption = None
-        img_title = "Follower Invitation"
-
-        if ai_gen_enabled:
-            try:
-                from core.ai_image_generator import AiImageGenerator
-                self.log("🎨 ກຳລັງໃຫ້ AI ສ້າງຮູບພາບໂປສເຕີ ແລະ ແຄບຊັ່ນໃໝ່ (ບໍ່ຊ້ຳກັນ 100%)...")
-                self.update_progress(10, "AI ກຳລັງສັງເຄາະຮູບພາບ ແລະ ສ້າງແຄບຊັ່ນ...")
-                ai_gen = AiImageGenerator(self.config)
-                img_path, ai_caption, img_title = ai_gen.generate_unique_cta_post()
-                self.log(f"✅ AI ສ້າງຮູບພາບ ແລະ ແຄບຊັ່ນສຳເລັດ: '{img_title}' -> {os.path.basename(img_path)}")
-            except Exception as e:
-                self.log(f"⚠️ AI Image Gen failed, fallback to default banner: {e}")
-                img_path = self.cta_poster.get_random_cta_image()
-        else:
-            img_path = self.cta_poster.get_random_cta_image()
-
-        if not img_path:
-            self.log("⚠️ ບໍ່ພົບຮູບພາບ CTA ຂ້າມຂັ້ນຕອນໂພສຮູບພາບ.")
-            return False
 
         pages_to_post = target_pages
         if not pages_to_post:
@@ -509,7 +520,55 @@ class ReelUploadEngine:
         try:
             for p_info in pages_to_post:
                 p_name = p_info.get("page_name", "")
-                caption = ai_caption or self.cta_poster.generate_cta_caption(p_name)
+                p_id = str(p_info.get("page_id", "")).strip()
+
+                if not force and self.queue_mgr.has_posted_cta_today(p_id):
+                    self.log(f"⏭️ ຂ້າມ CTA ສຳລັບ Page '{p_name}': ມື້ນີ້ໄດ້ໂພສໄປແລ້ວ 1 ຄັ້ງ (ໂຄຕ້າ 1 ໂພສ/ມື້)")
+                    continue
+
+                is_khaohom = (
+                    group_content_type == "lao_girl_khaohom" or 
+                    "ເຂົ້າຫອມ" in p_name or 
+                    "ข้าวหอม" in p_name
+                )
+
+                if is_khaohom:
+                    # Specialized cute invite for Nong Khao Hom
+                    img_path = self._pick_khaohom_cta_image()
+                    img_title = "ນ້ອງເຂົ້າຫອມ ສາວຂີ້ດື້ - Follower Invite"
+                    caption = (
+                        f"✨ น้องข้าวหอม สาวขี้ดื้อ มาแจกความสดใสแล้วค่าา~ 💖\n\n"
+                        f"ฝากกด Like & Follow ติดตามเพจ {p_name} ไว้นะคะ 💕\n"
+                        f"แล้วมาพบกับคลิปและภาพความน่ารักสดใสได้ทุกวันเลยค่าา อย่าลืมแวะมาคุยกับหนูบ่อยๆ น้าา 🌸🍦✨\n\n"
+                        f"#น้องข้าวหอม #สาวขี้ดื้อ #สาวลาวน่ารัก #ความน่ารักสดใส #แจกความสดใส #reelsfb"
+                    )
+                else:
+                    # China Drama AI Poster & Caption
+                    ai_gen_enabled = self.config.get("ai_image_gen", {}).get("enabled", True)
+                    img_title = "Follower Invitation"
+                    img_path = None
+                    caption = None
+
+                    if ai_gen_enabled:
+                        try:
+                            from core.ai_image_generator import AiImageGenerator
+                            self.log("🎨 ກຳລັງໃຫ້ AI ສ້າງຮູບພາບໂປສເຕີ ແລະ ແຄບຊັ່ນໃໝ່ (ບໍ່ຊ້ຳກັນ 100%)...")
+                            self.update_progress(10, "AI ກຳລັງສັງເຄາະຮູບພາບ ແລະ ສ້າງແຄບຊັ່ນ...")
+                            ai_gen = AiImageGenerator(self.config)
+                            img_path, caption, img_title = ai_gen.generate_unique_cta_post()
+                            self.log(f"✅ AI ສ້າງຮູບພາບ ແລະ ແຄບຊັ່ນສຳເລັດ: '{img_title}' -> {os.path.basename(img_path)}")
+                        except Exception as e:
+                            self.log(f"⚠️ AI Image Gen failed, fallback to default banner: {e}")
+
+                    if not img_path or not os.path.exists(img_path):
+                        img_path = self.cta_poster.get_random_cta_image()
+                    if not caption:
+                        caption = self.cta_poster.generate_cta_caption(p_name)
+
+                if not img_path or not os.path.exists(img_path):
+                    self.log(f"⚠️ ບໍ່ພົບຮູບພາບ CTA ສຳລັບ Page '{p_name}', ຂ້າມຂັ້ນຕອນ.")
+                    continue
+
                 self.log(f"\n📢 [Creator Goal] ກຳລັງໂພສຮູບພາບ AI ເຊີນຊວນກົດຕິດຕາມ Page: '{p_name}'...")
                 ok = self.cta_poster.post_cta_photo(
                     page=browser_page,
@@ -519,7 +578,9 @@ class ReelUploadEngine:
                     schedule_time=None
                 )
                 if ok:
+                    self.queue_mgr.record_cta_posted_today(p_id, p_name)
                     self.notifier.notify_cta_posted(img_title, p_name, image_path=img_path)
+                    self.log(f"✅ ບັນທຶກປະຫວັດ: Page '{p_name}' ໄດ້ໂພສ CTA ປະຈຳມື້ແລ້ວ.")
                 else:
                     overall_ok = False
         finally:
@@ -529,3 +590,23 @@ class ReelUploadEngine:
                 except Exception:
                     pass
         return overall_ok
+
+    def _pick_khaohom_cta_image(self) -> str:
+        """Finds or picks a dedicated image for Nong Khao Hom CTA post"""
+        dedicated_folders = [
+            "Y:/Movies FB Dedicated",
+            "G:/PG/ນ້ອງເຂົ້າຫອມ",
+            "G:/PG/ນ້ອງເຂົ້າຫອມ/output",
+            "./videos/dedicated"
+        ]
+        candidates = []
+        for d in dedicated_folders:
+            if os.path.exists(d):
+                for ext in (".png", ".jpg", ".jpeg", ".webp"):
+                    candidates.extend(glob.glob(os.path.join(d, f"*{ext}")))
+        if candidates:
+            return random.choice(candidates)
+        # Fallback to general cta image
+        if self.cta_poster:
+            return self.cta_poster.get_random_cta_image()
+        return ""

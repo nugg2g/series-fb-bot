@@ -175,17 +175,101 @@ class QueueManager:
 
         return False, "ລໍຖ້າອັບໂຫຼດ (Pending)"
 
-    def get_pending_videos(self, target_folder: Optional[str] = None, completed_folder: Optional[str] = None) -> List[str]:
+    def get_uploaded_page_ids(self, video_path: str) -> set:
         """
-        Returns list of video paths that are guaranteed NOT uploaded yet.
-        Strictly filters out any duplicates by hash or name.
+        Returns set of Page IDs that this video has already been uploaded to.
+        Used to skip pages that already have this video when a new page is added.
+        """
+        basename = os.path.basename(video_path)
+        files_map = self.history.get("files", {})
+        uploaded_ids = set()
+
+        rec = files_map.get(basename)
+        if not rec:
+            # Try by hash
+            f_hash = self.get_hash(video_path)
+            hashes_map = self.history.get("hashes", {})
+            rec = hashes_map.get(f_hash) if f_hash else None
+
+        if rec and rec.get("status") == "success":
+            meta = rec.get("meta", {})
+            target_pages = meta.get("target_pages", [])
+            for tp in target_pages:
+                if tp.get("success"):
+                    pid = str(tp.get("page_id", "")).strip()
+                    if pid:
+                        uploaded_ids.add(pid)
+
+        return uploaded_ids
+
+    def needs_upload_to_pages(self, video_path: str, target_pages: list, completed_folder: Optional[str] = None) -> Tuple[bool, list, list]:
+        """
+        Smart check: determines which pages still need this video.
+        
+        Returns: (needs_any_upload: bool, pages_needing_upload: list, pages_already_done: list)
+        - If ALL pages already have it → (False, [], all_pages)
+        - If SOME pages are missing → (True, missing_pages, done_pages)  
+        - If NO pages have it → (True, all_pages, [])
+        """
+        if not os.path.exists(video_path):
+            return False, [], target_pages
+
+        uploaded_ids = self.get_uploaded_page_ids(video_path)
+        if not uploaded_ids:
+            # Never uploaded at all - need all pages
+            return True, list(target_pages), []
+
+        pages_needing = []
+        pages_done = []
+        for p in target_pages:
+            pid = str(p.get("page_id", "")).strip()
+            if pid in uploaded_ids:
+                pages_done.append(p)
+            else:
+                pages_needing.append(p)
+
+        if not pages_needing:
+            return False, [], pages_done
+        return True, pages_needing, pages_done
+
+    def get_pending_videos(self, target_folder: Optional[str] = None, completed_folder: Optional[str] = None, target_pages: Optional[list] = None) -> List[str]:
+        """
+        Returns list of video paths that need uploading.
+        
+        If target_pages is provided, also scans completed folder for videos
+        that were uploaded to some pages but not all (backfill for new pages).
         """
         all_videos = self.scan_videos(target_folder=target_folder)
         pending = []
-        for v in all_videos:
-            is_dup, _ = self.is_already_uploaded(v, completed_folder=completed_folder)
-            if not is_dup:
-                pending.append(v)
+
+        if target_pages:
+            # Smart mode: check per-page status
+            for v in all_videos:
+                needs, _, _ = self.needs_upload_to_pages(v, target_pages, completed_folder)
+                if needs:
+                    pending.append(v)
+
+            # Also check completed folder for backfill candidates
+            c_folder = completed_folder or self.completed_folder
+            if c_folder and os.path.exists(c_folder):
+                for f in sorted(os.listdir(c_folder)):
+                    fp = os.path.join(c_folder, f)
+                    if not os.path.isfile(fp):
+                        continue
+                    ext = os.path.splitext(f)[1].lower()
+                    if ext not in self.VIDEO_EXTS and ext not in self.IMAGE_EXTS:
+                        continue
+                    # Check if this completed file needs upload to new pages
+                    needs, _, _ = self.needs_upload_to_pages(fp, target_pages)
+                    if needs and fp not in pending:
+                        pending.append(fp)
+        else:
+            # Legacy mode: simple duplicate check
+            for v in all_videos:
+                is_dup, _ = self.is_already_uploaded(v, completed_folder=completed_folder)
+                if not is_dup:
+                    pending.append(v)
+
         return pending
 
     def mark_completed(self, video_path: str, meta: Optional[Dict[str, Any]] = None, custom_dest_folder: Optional[str] = None):
@@ -293,6 +377,20 @@ class QueueManager:
             "total_uploaded": success_count,
             "total_failed": failed_count
         }
+
+    def has_posted_cta_today(self, page_id: str) -> bool:
+        """Checks if a follower CTA post has already been posted to this page today"""
+        today = datetime.now().strftime("%Y-%m-%d")
+        cta_dates = self.history.get("cta_posted_dates", {})
+        return cta_dates.get(str(page_id).strip()) == today
+
+    def record_cta_posted_today(self, page_id: str, page_name: str = ""):
+        """Records today's date for CTA post for this page to enforce 1 post/day"""
+        today = datetime.now().strftime("%Y-%m-%d")
+        if "cta_posted_dates" not in self.history:
+            self.history["cta_posted_dates"] = {}
+        self.history["cta_posted_dates"][str(page_id).strip()] = today
+        self._save_history()
 
     def restore_completed_videos(self) -> int:
         """
