@@ -48,13 +48,18 @@ def load_security_settings():
     except Exception:
         pass
 
-    return pin or "8888", token or "b0015017e92db8567376789a3d0c12b0"
+    return pin or "5564", token or "b0015017e92db8567376789a3d0c12b0"
 
 ACCESS_PIN, SYNC_SECRET_TOKEN = load_security_settings()
 SECRET_SALT = os.environ.get("SECRET_SALT", "reels_bot_secure_salt_9988")
 
-# Rate Limiting Tracker: {ip: [timestamps]}
+# Anti-Brute-Force & Rate Limiting Tracker
+# 5 failed attempts in 10 minutes -> 15 minutes lockout
+MAX_FAILED_ATTEMPTS = 5
+LOCKOUT_WINDOW_SECONDS = 600
+LOCKOUT_DURATION_SECONDS = 900
 FAILED_ATTEMPTS: Dict[str, List[float]] = {}
+LOCKED_IPS: Dict[str, float] = {}
 
 
 def get_client_ip() -> str:
@@ -63,12 +68,22 @@ def get_client_ip() -> str:
     return request.remote_addr or "127.0.0.1"
 
 
-def is_rate_limited(ip: str) -> bool:
+def is_rate_limited(ip: str) -> Tuple[bool, int]:
     now = time.time()
+    locked_until = LOCKED_IPS.get(ip, 0)
+    if now < locked_until:
+        return True, int(locked_until - now)
+    elif locked_until > 0:
+        LOCKED_IPS.pop(ip, None)
+        FAILED_ATTEMPTS.pop(ip, None)
+
     attempts = FAILED_ATTEMPTS.get(ip, [])
-    attempts = [t for t in attempts if now - t < 300]
+    attempts = [t for t in attempts if now - t < LOCKOUT_WINDOW_SECONDS]
     FAILED_ATTEMPTS[ip] = attempts
-    return len(attempts) >= 5
+    if len(attempts) >= MAX_FAILED_ATTEMPTS:
+        LOCKED_IPS[ip] = now + LOCKOUT_DURATION_SECONDS
+        return True, LOCKOUT_DURATION_SECONDS
+    return False, 0
 
 
 def record_failed_attempt(ip: str):
@@ -76,11 +91,13 @@ def record_failed_attempt(ip: str):
     if ip not in FAILED_ATTEMPTS:
         FAILED_ATTEMPTS[ip] = []
     FAILED_ATTEMPTS[ip].append(now)
+    if len(FAILED_ATTEMPTS[ip]) >= MAX_FAILED_ATTEMPTS:
+        LOCKED_IPS[ip] = now + LOCKOUT_DURATION_SECONDS
 
 
 def clear_failed_attempts(ip: str):
-    if ip in FAILED_ATTEMPTS:
-        FAILED_ATTEMPTS.pop(ip, None)
+    FAILED_ATTEMPTS.pop(ip, None)
+    LOCKED_IPS.pop(ip, None)
 
 
 def generate_session_token(pin: str) -> str:
@@ -1210,14 +1227,32 @@ def index():
     return render_template_string(MOBILE_UI_HTML)
 
 
+@app.after_request
+def add_security_headers(response):
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["X-Frame-Options"] = "SAMEORIGIN"
+    response.headers["X-XSS-Protection"] = "1; mode=block"
+    response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+    return response
+
+
 @app.route("/api/auth/login", methods=["POST"])
 def api_auth_login():
     ip = get_client_ip()
-    if is_rate_limited(ip):
-        return jsonify({"success": False, "message": "⚠️ ພະຍາຍາມໃສ່ລະຫັດຜິດຫຼາຍຄັ້ງເກີນໄປ. ກະລຸນາລໍຖ້າ 5 ນາທີ."}), 429
+    limited, wait_secs = is_rate_limited(ip)
+    if limited:
+        wait_mins = max(1, (wait_secs + 59) // 60)
+        return jsonify({
+            "success": False,
+            "message": f"🛡️ ລະບົບກວດພົບການພະຍາຍາມສຸ່ມລະຫັດຜິດຫຼາຍຄັ້ງ! ລະບົບໄດ້ບລັອກ IP ນີ້ຊົ່ວຄາວ {wait_mins} ນາທີ ເພື່ອຄວາມປອດໄພ."
+        }), 429
 
     data = request.get_json(silent=True) or {}
     pin = str(data.get("pin", "")).strip()
+
+    if len(pin) > 32:
+        record_failed_attempt(ip)
+        return jsonify({"success": False, "message": "❌ ລະຫັດ PIN ບໍ່ຖືກຕ້ອງ"}), 400
 
     if pin and hmac.compare_digest(pin, ACCESS_PIN):
         clear_failed_attempts(ip)
@@ -1225,11 +1260,14 @@ def api_auth_login():
         return jsonify({"success": True, "token": token, "message": "ປົດລັອກສຳເລັດ (Unlock success)"})
 
     record_failed_attempt(ip)
+    if not app.config.get("TESTING"):
+        time.sleep(1.0)
+
     attempts = len(FAILED_ATTEMPTS.get(ip, []))
-    remaining = max(0, 5 - attempts)
+    remaining = max(0, MAX_FAILED_ATTEMPTS - attempts)
     return jsonify({
         "success": False,
-        "message": f"❌ ລະຫັດ PIN ບໍ່ຖືກຕ້ອງ (ຍັງເຫຼືອໂອກາດ {remaining} ຄັ້ງ)"
+        "message": f"❌ ລະຫັດ PIN ບໍ່ຖືກຕ້ອງ (ຍັງເຫຼືອໂອກາດ {remaining} ຄັ້ງ ກ່ອນຖືກບລັອກ IP)"
     }), 401
 
 

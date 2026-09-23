@@ -134,7 +134,7 @@ class TestWebServer(unittest.TestCase):
         # 6th attempt should be blocked with 429 Too Many Requests
         res = self.client.post('/api/auth/login', json={"pin": "wrong_6"})
         self.assertEqual(res.status_code, 429)
-        self.assertIn("ລໍຖ້າ 5 ນາທີ", res.get_json().get("message", ""))
+        self.assertIn("ບລັອກ IP", res.get_json().get("message", ""))
         
         # Reset after test
         web_server.clear_failed_attempts('127.0.0.1')

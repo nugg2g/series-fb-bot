@@ -8,6 +8,6 @@ services:
       - key: PORT
         value: 10000
       - key: ACCESS_PIN
-        value: "8888"
+        value: "5564"
       - key: SYNC_SECRET_TOKEN
         value: "b0015017e92db8567376789a3d0c12b0"

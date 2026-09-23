@@ -115,7 +115,7 @@
     "port": 5555,
     "enable_tunnel": true,
     "cloud_relay_url": "",
-    "access_pin": "8888",
+    "access_pin": "5564",
     "sync_secret_token": "GENERATE_RANDOM_SECRET_TOKEN"
   },
   "whatsapp_notify": {
