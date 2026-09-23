@@ -441,15 +441,21 @@ class ReelUploadEngine:
                         for p_res in failed_pages:
                             self.notifier.notify_upload_failed(title, p_res.get("page_name", ""), p_res.get("error", "Unknown error"))
 
-                    # Follower CTA Photo Post trigger (1 post per day per page)
-                    cta_enabled = self.config.get("cta_post_enabled", True)
-                    if cta_enabled:
+                    # Follower CTA Photo Post trigger (1 post per day per page - ສະເພາະ 3 Pages ຊີຣີຈີນເທົ່ານັ້ນ)
+                    cta_enabled = self.config.get("cta_post_enabled", True) and group.get("cta_post_enabled", True)
+                    is_khao_hom_group = (
+                        g_id == "group_dedicated_1page" or 
+                        g_content_type == "lao_girl_khaohom" or 
+                        "ເຂົ້າຫອມ" in g_name or 
+                        "ข้าวหอม" in g_name
+                    )
+                    if cta_enabled and not is_khao_hom_group:
                         pages_needing_cta = [
                             p for p in g_pages 
                             if not self.queue_mgr.has_posted_cta_today(str(p.get("page_id", "")))
                         ]
                         if pages_needing_cta:
-                            self.log(f"\n📢 [Creator Goal - ມື້ລະ 1 Post] ກຳລັງໂພສຮູບພາບ AI ເຊີນຊວນຕິດຕາມສຳລັບ {len(pages_needing_cta)} Pages ທີ່ຍັງບໍ່ໄດ້ໂພສມື້ນີ້...")
+                            self.log(f"\n📢 [Creator Goal - ມື້ລະ 1 Post] ກຳລັງໂພສຮູບພາບ AI ເຊີນຊວນຕິດຕາມສຳລັບ {len(pages_needing_cta)} Pages (ຊີຣີຈີນ) ທີ່ຍັງບໍ່ໄດ້ໂພສມື້ນີ້...")
                             try:
                                 self.post_follower_cta(
                                     page=page, 
@@ -569,19 +575,13 @@ class ReelUploadEngine:
                 is_khaohom = (
                     group_content_type == "lao_girl_khaohom" or 
                     "ເຂົ້າຫອມ" in p_name or 
-                    "ข้าวหอม" in p_name
+                    "ข้าวหอม" in p_name or
+                    p_id == "1384777811375983"
                 )
 
                 if is_khaohom:
-                    # Specialized cute invite for Nong Khao Hom
-                    img_path = self._pick_khaohom_cta_image()
-                    img_title = "ນ້ອງເຂົ້າຫອມ ສາວຂີ້ດື້ - Follower Invite"
-                    caption = (
-                        f"✨ น้องข้าวหอม สาวขี้ดื้อ มาแจกความสดใสแล้วค่าา~ 💖\n\n"
-                        f"ฝากกด Like & Follow ติดตามเพจ {p_name} ไว้นะคะ 💕\n"
-                        f"แล้วมาพบกับคลิปและภาพความน่ารักสดใสได้ทุกวันเลยค่าา อย่าลืมแวะมาคุยกับหนูบ่อยๆ น้าา 🌸🍦✨\n\n"
-                        f"#น้องข้าวหอม #สาวขี้ดื้อ #สาวลาวน่ารัก #ความน่ารักสดใส #แจกความสดใส #reelsfb"
-                    )
+                    self.log(f"⏭️ ຂ້າມ CTA ສຳລັບ Page '{p_name}': ປິດການໂພສເຊີນຊວນ (ໂພສສະເພາະເນື້ອຫາຈາກ Folder ເທົ່ານັ້ນ)")
+                    continue
                 else:
                     # China Drama AI Poster & Caption
                     ai_gen_enabled = self.config.get("ai_image_gen", {}).get("enabled", True)

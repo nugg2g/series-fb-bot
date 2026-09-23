@@ -227,6 +227,46 @@ class CaptionGenerator:
             "generate_catchy_title_if_no_name": True,
             "analyze_cover_frame": True
         })
+        self.cache_file = os.path.abspath("./logs/ai_caption_cache.json")
+
+    def _load_ai_cache(self) -> Dict[str, Any]:
+        """Loads cached AI captions to prevent wasting API credits on repeated requests."""
+        try:
+            if os.path.exists(self.cache_file):
+                with open(self.cache_file, "r", encoding="utf-8") as f:
+                    return json.load(f)
+        except Exception:
+            pass
+        return {}
+
+    def _save_ai_cache(self, cache: Dict[str, Any]):
+        """Persists AI captions cache to disk safely."""
+        try:
+            os.makedirs(os.path.dirname(self.cache_file), exist_ok=True)
+            with open(self.cache_file, "w", encoding="utf-8") as f:
+                json.dump(cache, f, ensure_ascii=False, indent=2)
+        except Exception:
+            pass
+
+    def get_cached_ai_result(self, filename: str) -> Optional[Dict[str, str]]:
+        """Retrieves previously generated AI title & caption if exists."""
+        base = os.path.splitext(os.path.basename(filename))[0].strip()
+        cache = self._load_ai_cache()
+        if base in cache:
+            return cache[base]
+        return None
+
+    def store_cached_ai_result(self, filename: str, title: str, caption: str, source: str = "ai_cached"):
+        """Saves generated AI title & caption to avoid re-querying Gemini API in future runs."""
+        base = os.path.splitext(os.path.basename(filename))[0].strip()
+        cache = self._load_ai_cache()
+        cache[base] = {
+            "title": title,
+            "caption": caption,
+            "source": source,
+            "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        }
+        self._save_ai_cache(cache)
 
     @classmethod
     def is_meaningful_filename(cls, filename: str) -> bool:
@@ -833,7 +873,20 @@ class CaptionGenerator:
         if os.path.exists(video_path):
             cover_path = self.extract_cover_frame(video_path)
 
-        # 1. Try Gemini AI (Vision + Text Fallback)
+        # 1. Check Local AI Persistent Cache (Credit Saver - 0 API cost)
+        cached = self.get_cached_ai_result(video_path)
+        if cached and cached.get("title"):
+            cached_title = self.apply_title_prefix(cached["title"], title_prefix)
+            cached_caption = cached.get("caption", "")
+            print(f"[CaptionGenerator] ⚡ [Credit Saver] Loaded Title & Caption from local AI Cache: '{cached_title}' (Zero API calls)")
+            return {
+                "title": cached_title,
+                "caption": cached_caption,
+                "source": "ai_persistent_cache",
+                "cover_path": cover_path
+            }
+
+        # 2. Try Gemini AI (Vision + Text Fallback)
         if self.ai_config.get("enabled", True):
             ep_label = f" (Episode {index})" if self.config.get("add_episode_number", False) else ""
             print(f"[CaptionGenerator] 🤖 Requesting Gemini AI Title for '{raw_name[:40]}...'{ep_label} (Category: {content_type})...")
@@ -855,6 +908,20 @@ class CaptionGenerator:
                         final_caption = re.sub(r'(🎬\s*|✨\s*)(.+)', rf'\1{title_prefix.strip()} \2', final_caption, count=1)
                 
                 final_caption = re.sub(r'(\[เต็มเรื่อง\]|\(เต็มเรื่อง\)|【เต็มเรื่อง】)\s*(\[เต็มเรื่อง\]|\(เต็มเรื่อง\)|【เต็มเรื่อง】)', r'\1', final_caption)
+
+                # Persist to local AI cache to avoid future credit usage
+                self.store_cached_ai_result(video_path, ai_title, final_caption, source=ai_result.get("source", "gemini_ai"))
+
+                # Write companion text file beside media if directory is writable
+                try:
+                    txt_companion = os.path.splitext(video_path)[0] + ".txt"
+                    if not os.path.exists(txt_companion):
+                        with open(txt_companion, "w", encoding="utf-8") as tf:
+                            tf.write(f"{ai_title}\n\n{final_caption}")
+                        print(f"[CaptionGenerator] 💾 [Credit Saver] Created companion text file: '{os.path.basename(txt_companion)}'")
+                except Exception:
+                    pass
+
                 return {
                     "title": ai_title,
                     "caption": final_caption.strip(),

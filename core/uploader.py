@@ -640,7 +640,20 @@ class ReelsUploader:
                     break
                 time.sleep(1)
 
-            btn.click()
+            clicked = False
+            try:
+                btn.click(timeout=5000)
+                clicked = True
+            except Exception:
+                try:
+                    btn.click(force=True, timeout=5000)
+                    clicked = True
+                except Exception:
+                    try:
+                        btn.evaluate("el => el.click()")
+                        clicked = True
+                    except Exception:
+                        pass
             time.sleep(2)
         else:
             raise Exception("ไม่พบปุ่ม 'Next' / 'ถัดไป'")
@@ -763,9 +776,32 @@ class ReelsUploader:
                 if not disabled:
                     self.log(f"✅ วิดีโออัปโหลดเสร็จสมบูรณ์ 100%! ปุ่ม '{btn_name}' พร้อมใช้งานแล้ว.")
                     time.sleep(1)
-                    btn.click()
-                    self.log(f"🚀 กดปุ่ม '{btn_name}' เรียบร้อยแล้ว.")
-                    return True
+                    self.dismiss_popups()
+                    try:
+                        self.page.keyboard.press("Escape")
+                    except Exception:
+                        pass
+
+                    clicked = False
+                    try:
+                        btn.click(timeout=5000)
+                        clicked = True
+                    except Exception as e_click:
+                        self.log(f"Notice: Normal click on '{btn_name}' intercepted ({e_click}), trying force click...")
+                        try:
+                            btn.click(force=True, timeout=5000)
+                            clicked = True
+                        except Exception as e_force:
+                            self.log(f"Notice: Force click failed ({e_force}), falling back to JavaScript click...")
+                            try:
+                                btn.evaluate("el => el.click()")
+                                clicked = True
+                            except Exception as e_js:
+                                self.log(f"Warning: JavaScript click failed: {e_js}")
+
+                    if clicked:
+                        self.log(f"🚀 กดปุ่ม '{btn_name}' เรียบร้อยแล้ว.")
+                        return True
                 else:
                     if int(time.time() - start) % 15 == 0:
                         pct_msg = f" ({progress})" if progress else ""

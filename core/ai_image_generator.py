@@ -27,6 +27,37 @@ class AiImageGenerator:
         self.output_dir = os.path.abspath(config.get("cta_images_folder", "./cta_images"))
         os.makedirs(self.output_dir, exist_ok=True)
         self.caption_gen = CaptionGenerator(config)
+        self.cta_cache_file = os.path.abspath("./logs/today_cta_cache.json")
+
+    def get_cached_today_cta(self) -> Optional[Tuple[str, str, str]]:
+        """Returns cached CTA image, caption, and title for today if available."""
+        today = datetime.now().strftime("%Y-%m-%d")
+        try:
+            if os.path.exists(self.cta_cache_file):
+                with open(self.cta_cache_file, "r", encoding="utf-8") as f:
+                    data = json.load(f)
+                if data.get("date") == today:
+                    img = data.get("image_path", "")
+                    if img and os.path.exists(img):
+                        return img, data.get("caption", ""), data.get("title", "")
+        except Exception:
+            pass
+        return None
+
+    def store_cached_today_cta(self, image_path: str, caption: str, title: str):
+        """Persists today's generated CTA post so all target pages reuse it without extra API cost."""
+        today = datetime.now().strftime("%Y-%m-%d")
+        try:
+            os.makedirs(os.path.dirname(self.cta_cache_file), exist_ok=True)
+            with open(self.cta_cache_file, "w", encoding="utf-8") as f:
+                json.dump({
+                    "date": today,
+                    "image_path": image_path,
+                    "caption": caption,
+                    "title": title
+                }, f, ensure_ascii=False, indent=2)
+        except Exception:
+            pass
 
     def generate_unique_cta_post(self, video_path: Optional[str] = None) -> Tuple[str, str, str]:
         """
@@ -34,6 +65,12 @@ class AiImageGenerator:
         Returns:
             (saved_image_path, ai_caption_text, title)
         """
+        # 0. Check Today's Cache (Credit Saver - 1 generation per day shared across pages/retries)
+        cached = self.get_cached_today_cta()
+        if cached:
+            print(f"[AiImageGenerator] ⚡ [Credit Saver] Reusing today's cached AI CTA poster: {os.path.basename(cached[0])}")
+            return cached
+
         # 1. ຫາໄຟລ໌ວິດີໂອສຳລັບດຶງ Keyframe
         target_video = video_path or self._pick_random_video()
 
@@ -54,6 +91,9 @@ class AiImageGenerator:
         filename = f"ai_cta_{timestamp_str}_{random.randint(100, 999)}.jpg"
         save_path = os.path.join(self.output_dir, filename)
         final_img.save(save_path, quality=95)
+
+        # Cache today's CTA post to prevent spending credits on repeated generations
+        self.store_cached_today_cta(save_path, caption, title)
 
         return save_path, caption, title
 
