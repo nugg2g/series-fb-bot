@@ -183,10 +183,12 @@ class AiImageGenerator:
         return img
 
     def _generate_ai_content(self, video_path: Optional[str], frame_img: Image.Image) -> Tuple[str, str, str]:
-        """ໃຊ້ Gemini AI ສ້າງຊື່ເລື່ອງ, ຄຳໂປຣໂມດ ແລະ Caption ເຊີນຊວນຕິດຕາມເພຈ."""
+        """ໃຊ້ Gemini AI ສ້າງຊື່ເລື່ອງ, ຄຳໂປຣໂມດ ແລະ Caption ເຊີນຊວນຕິດຕາມເພຈ ເປັນພາສາໄທລ້ວນ 100%."""
+        import re
         clean_filename = ""
         if video_path:
             clean_filename = self.caption_gen.clean_filename(os.path.basename(video_path))
+            clean_filename = re.sub(r'[\u0E80-\u0EFF]', '', clean_filename).strip()
 
         # ຖ້າ Gemini ເປີດໃຊ້ງານ
         ai_cfg = self.config.get("ai_caption", {})
@@ -202,16 +204,21 @@ class AiImageGenerator:
                         pass
                 if res and res.get("title") and res.get("caption"):
                     t = res["title"].replace("ตอนที่ 1", "").replace("EP.1", "").strip()
+                    # Strip any non-Thai/Lao characters
+                    t = re.sub(r'[\u0E80-\u0EFF]', '', t).strip()
+                    if not t or len(t) < 3:
+                        t = "ซีรีส์จีน ดราม่าเข้มข้น พากย์ไทย"
                     s = "ซีรีส์จีนดราม่าสุดเข้มข้น พากย์ไทยเต็มเรื่อง"
                     c = res["caption"]
-                    # Add follower CTA line to caption if not already present
+                    c = re.sub(r'[\u0E80-\u0EFF]', '', c).strip()
+                    # Add follower CTA line to caption if not already present (100% Thai)
                     if "ติดตาม" not in c:
-                        c += "\n\n👉 ฝากกด Like และกดติดตามเพจ เพื่อรับชมซีรีส์จีนเรื่องใหม่ๆ ทุกวันด้วยนะครับ! ✨"
+                        c += "\n\n👉 ฝากกด Like และกด Follow ติดตามเพจ เพื่อรับชมซีรีส์จีนเรื่องใหม่ๆ ทุกวันด้วยนะครับ! ✨"
                     return t, s, c
             except Exception as e:
                 print(f"[AiImageGenerator] Gemini AI visual prompt failed: {e}")
 
-        # Curated Fallback
+        # Curated Fallback (100% Pure Thai)
         fallback_titles = [
             "ศึกจอมราชันย์ ทวงบัลลังก์",
             "เล่ห์รักจอมใจ ข้ามมิติ 100 ปี",
@@ -228,6 +235,9 @@ class AiImageGenerator:
             "อัปเดตตอนใหม่เต็มเรื่องจุใจ ทุกวัน!",
         ]
         t = clean_filename if clean_filename else random.choice(fallback_titles)
+        t = re.sub(r'[\u0E80-\u0EFF]', '', t).strip()
+        if not t or len(t) < 3:
+            t = random.choice(fallback_titles)
         s = random.choice(fallback_subtitles)
         c = (
             f"🎬 ✨ {t} ✨\n\n"

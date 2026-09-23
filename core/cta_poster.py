@@ -120,9 +120,16 @@ class CtaPoster:
         return random.choice(files) if files else None
 
     def generate_cta_caption(self, page_name: str) -> str:
-        """Builds an engaging follower invitation caption with Thai hashtags"""
+        """Builds an engaging follower invitation caption strictly in 100% pure Thai language"""
+        import re
         p_name = page_name or self.config.get("page_name", "ซีรีส์จีน เต็มเรื่อง")
         
+        # Ensure page name used in Thai caption is strictly pure Thai without Lao script or non-drama terms
+        if re.search(r'[\u0E80-\u0EFF]', p_name) or "savannakhet" in p_name.lower() or "football" in p_name.lower():
+            clean_display_name = "ซีรีส์จีน เต็มเรื่อง"
+        else:
+            clean_display_name = p_name
+
         # Check if Gemini AI caption generation is enabled
         ai_cfg = self.config.get("ai_caption", {})
         if ai_cfg.get("enabled", False) and ai_cfg.get("api_key"):
@@ -131,39 +138,46 @@ class CtaPoster:
                 client = genai.Client(api_key=ai_cfg.get("api_key").split(",")[0].strip())
                 model = ai_cfg.get("model", "gemini-2.5-flash")
                 prompt = (
-                    f"Create a short, viral, exciting Facebook Page follower invitation post in Thai language for the Facebook Page '{p_name}'. "
-                    f"The page posts AI Chinese mini-series and drama full movies. "
-                    f"Include high-energy emojis, a clear Call-to-Action asking viewers to follow the page, and 5-8 trending hashtags. "
-                    f"Keep it concise (around 4-6 lines)."
+                    f"Create a short, viral, exciting Facebook Page follower invitation post in 100% PURE THAI LANGUAGE (ภาษาไทยล้วน) for the Chinese mini-series Facebook Page '{clean_display_name}'. "
+                    f"CRITICAL REQUIREMENTS:\n"
+                    f"1. Absolutely NO Lao characters or non-Thai text (ห้ามมีภาษาลาวโดยเด็ดขาด 100%).\n"
+                    f"2. Focus entirely on Chinese mini-series, drama, and full movie uploads.\n"
+                    f"3. Include high-energy emojis, a clear Call-to-Action asking viewers to Like and Follow the page (กด Like & Follow ติดตามเพจ), and 5-8 trending hashtags in Thai.\n"
+                    f"4. Keep it concise (around 4-6 lines)."
                 )
                 res = client.models.generate_content(model=model, contents=prompt)
                 if res and res.text:
-                    return res.text.strip()
+                    out = res.text.strip()
+                    # Strip any accidental Lao characters (U+0E80 to U+0EFF)
+                    out = re.sub(r'[\u0E80-\u0EFF]', '', out).strip()
+                    return out
             except Exception as e:
                 self.log(f"AI caption fallback to curated template: {e}")
 
-        # High converting curated templates pool
+        # High converting curated templates pool (100% Pure Thai)
         templates = [
             (
                 f"🎬 รวมซีรีส์จีนสุดมันส์ สนุก ครบรส เต็มเรื่องจบ! ✨\n\n"
-                f"ใครชอบดูหนังสั้นจีน ซีรีส์จีนสนุกๆ อย่าลืมกด 'ติดตาม' (Follow) เพจ {p_name} ไว้นะครับ!\n"
+                f"ใครชอบดูหนังสั้นจีน ซีรีส์จีนสนุกๆ อย่าลืมกด 'ติดตาม' (Follow) เพจ {clean_display_name} ไว้นะครับ!\n"
                 f"📌 มีเรื่องใหม่ๆ พากย์ไทยและซับไทย มาเสิร์ฟให้รับชมฟรีทุกวัน ห้ามพลาดเด็ดขาด! 🔥\n\n"
-                f"#ซีรีส์จีน #หนังสั้นจีน #chinaai #ซีรีส์สั้น #ละครสั้น #ติดตามเพจ"
+                f"#ซีรีส์จีน #หนังสั้นจีน #chinaai #ซีรีส์สั้น #ละครสั้น #ติดตามเพจ #reelsfb"
             ),
             (
                 f"✨ คอซีรีส์จีน AI ดราม่าเข้มข้น ห้ามพลาด! ✨\n\n"
-                f"กด Like & Follow เพจ {p_name} เพื่อเป็นกำลังใจให้ทีมงานด้วยนะครับ 🙏\n"
+                f"กด Like & Follow เพจ {clean_display_name} เพื่อเป็นกำลังใจให้ทีมงานด้วยนะครับ 🙏\n"
                 f"อัปเดตเรื่องใหม่สุดเข้มข้นแบบเต็มเรื่องจบทุกวัน กดกระดิ่งแจ้งเตือนไว้เลย! 🔔\n\n"
-                f"#หนังสั้นจีน #ซีรีส์จีน #ละครสั้น #chinesedrama #reelsdrama"
+                f"#หนังสั้นจีน #ซีรีส์จีน #ละครสั้น #chinesedrama #reelsdrama #fyp"
             ),
             (
                 f"🔥 รวมความสนุกแบบเต็มเรื่องจบ อยู่ที่นี่แล้ว! 🔥\n\n"
-                f"ฝากกดติดตามเพจ {p_name} กันด้วยนะครับ จะได้ไม่พลาดคลิปสนุกๆ ใหม่ๆ ที่อัปเดตทุกวัน!\n"
+                f"ฝากกดติดตามเพจ {clean_display_name} กันด้วยนะครับ จะได้ไม่พลาดคลิปสนุกๆ ใหม่ๆ ที่อัปเดตทุกวัน!\n"
                 f"ขอบคุณทุกการติดตามและรับชมนะครับ ✨🎬\n\n"
-                f"#ซีรีส์จีนเต็มเรื่อง #หนังสั้นจีน #ละครสั้นจีน #chinaai"
+                f"#ซีรีส์จีนเต็มเรื่อง #หนังสั้นจีน #ละครสั้นจีน #chinaai #reels"
             )
         ]
-        return random.choice(templates)
+        chosen = random.choice(templates)
+        # Final pass: Strip any accidental Lao characters (U+0E80 to U+0EFF)
+        return re.sub(r'[\u0E80-\u0EFF]', '', chosen).strip()
 
     def post_cta_photo(
         self,

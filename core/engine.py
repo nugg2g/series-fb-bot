@@ -609,7 +609,12 @@ class ReelUploadEngine:
                     self.log(f"⚠️ ບໍ່ພົບຮູບພາບ CTA ສຳລັບ Page '{p_name}', ຂ້າມຂັ້ນຕອນ.")
                     continue
 
-                self.log(f"\n📢 [Creator Goal] ກຳລັງໂພສຮູບພາບ AI ເຊີນຊວນກົດຕິດຕາມ Page: '{p_name}'...")
+                # Enforce strictly 100% Thai language for China Drama CTA post
+                import re
+                if caption:
+                    caption = re.sub(r'[\u0E80-\u0EFF]', '', caption).strip()
+
+                self.log(f"\n📢 [Creator Goal - ພາສາໄທລ້ວນ] ກຳລັງໂພສຮູບພາບ AI ເຊີນຊວນກົດຕິດຕາມ Page: '{p_name}'...")
                 ok = self.cta_poster.post_cta_photo(
                     page=browser_page,
                     image_path=img_path,
