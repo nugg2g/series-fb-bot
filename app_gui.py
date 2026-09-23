@@ -241,25 +241,14 @@ class MainWindow(QMainWindow):
         self.resize(1050, 780)
         self.setMinimumSize(950, 680)
 
-        # Initialize In-App WebEngine Profile with persistent storage
+        # In-App WebEngine Profile configuration (lazy loaded to prevent startup freeze)
         self.web_profile_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "webengine_profile"))
-        os.makedirs(self.web_profile_path, exist_ok=True)
-        self.web_profile = QWebEngineProfile("FBInAppProfile2", self)
-        self.web_profile.setPersistentStoragePath(self.web_profile_path)
-        self.web_profile.setPersistentCookiesPolicy(QWebEngineProfile.PersistentCookiesPolicy.ForcePersistentCookies)
-        self.web_profile.setHttpUserAgent(
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:133.0) Gecko/20100101 Firefox/133.0"
-        )
-        settings = self.web_profile.settings()
-        settings.setAttribute(QWebEngineSettings.WebAttribute.JavascriptEnabled, True)
-        settings.setAttribute(QWebEngineSettings.WebAttribute.LocalStorageEnabled, True)
-        settings.setAttribute(QWebEngineSettings.WebAttribute.JavascriptCanOpenWindows, True)
-
+        self.web_profile = None
+        self.webview = None
+        self.browser_initialized = False
         self.cookies_cache = {}
-        self.web_profile.cookieStore().cookieAdded.connect(self.on_webengine_cookie_added)
-        self.web_profile.cookieStore().loadAllCookies()
 
-        # Start Mobile Remote Monitor (Web Dashboard & Cloudflare Tunnel)
+        # Start Mobile Remote Monitor (Web Dashboard & Cloud Relay)
         from core.web_monitor import start_web_monitor, STATE as WEB_STATE, get_local_ip
         self.web_state = start_web_monitor(self.config, action_callback=self.handle_remote_action)
         local_p = self.config.get("web_monitor", {}).get("port", 5555)
@@ -273,6 +262,9 @@ class MainWindow(QMainWindow):
 
         # Connect tab change listener
         self.tabs.currentChanged.connect(self.on_tab_changed)
+
+        # Background warm-up of In-App browser after UI is already rendered
+        QTimer.singleShot(1200, self.ensure_browser_initialized)
 
         # Setup auto refresh timer (lightweight signature check every 15s to prevent any UI stutter)
         self.refresh_timer = QTimer(self)
@@ -881,6 +873,13 @@ class MainWindow(QMainWindow):
         self.lbl_inapp_status = QLabel("⚪ กำลังตรวจสอบสถานะ...")
         self.lbl_inapp_status.setFont(QFont("Leelawadee UI", 9, QFont.Bold))
 
+        self.btn_web_back = btn_back
+        self.btn_web_fwd = btn_fwd
+        self.btn_web_reload = btn_reload
+        self.btn_web_fb = btn_fb
+        self.btn_web_mbs = btn_mbs
+        self.btn_web_save = btn_save
+
         bar.addWidget(btn_back)
         bar.addWidget(btn_fwd)
         bar.addWidget(btn_reload)
@@ -901,23 +900,12 @@ class MainWindow(QMainWindow):
         self.web_progress.setStyleSheet("QProgressBar::chunk { background-color: #06d6a0; } QProgressBar { border: none; background: transparent; }")
         layout.addWidget(self.web_progress)
 
-        # WebEngine View
-        self.webview = QWebEngineView()
-        self.webpage = CustomWebEnginePage(self.web_profile, self.webview)
-        self.webview.setPage(self.webpage)
-
-        btn_back.clicked.connect(self.webview.back)
-        btn_fwd.clicked.connect(self.webview.forward)
-        btn_reload.clicked.connect(self.webview.reload)
-        btn_fb.clicked.connect(lambda: self.webview.load(QUrl("https://www.facebook.com")))
-        btn_mbs.clicked.connect(lambda: self.webview.load(QUrl("https://business.facebook.com/latest/home")))
-        btn_save.clicked.connect(self.manual_save_inapp_cookies)
-
-        self.webview.urlChanged.connect(lambda u: self.txt_url.setText(u.toString()))
-        self.webview.loadProgress.connect(self.on_load_progress)
-        self.webview.loadFinished.connect(self.on_load_finished)
-
-        layout.addWidget(self.webview)
+        # Lazy Container for WebEngine View (prevents 2s startup lag)
+        self.browser_content_layout = layout
+        self.browser_placeholder = QLabel("🌐 ກຳລັງຕຽມພ້ອມ In-App Browser... (ກົດທີ່ແທັບນີ້ເພື່ອເປີດ Facebook & Meta Business Suite)")
+        self.browser_placeholder.setAlignment(Qt.AlignCenter)
+        self.browser_placeholder.setStyleSheet("color: #89b4fa; font-size: 13px; padding: 40px;")
+        layout.addWidget(self.browser_placeholder)
 
         # Quick return banner
         banner_layout = QHBoxLayout()
@@ -931,8 +919,62 @@ class MainWindow(QMainWindow):
         banner_layout.addWidget(btn_go_dash)
         layout.addLayout(banner_layout)
 
-        # Load Meta Business Suite by default
-        self.webview.load(QUrl("https://business.facebook.com/latest/home"))
+        return widget
+
+    def ensure_browser_initialized(self):
+        """Initializes heavy Chromium WebEngine on-demand without blocking initial startup window."""
+        if getattr(self, 'browser_initialized', False):
+            return
+        self.browser_initialized = True
+
+        try:
+            if not self.web_profile:
+                os.makedirs(self.web_profile_path, exist_ok=True)
+                self.web_profile = QWebEngineProfile("FBInAppProfile2", self)
+                self.web_profile.setPersistentStoragePath(self.web_profile_path)
+                self.web_profile.setPersistentCookiesPolicy(QWebEngineProfile.PersistentCookiesPolicy.ForcePersistentCookies)
+                self.web_profile.setHttpUserAgent(
+                    "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:133.0) Gecko/20100101 Firefox/133.0"
+                )
+                settings = self.web_profile.settings()
+                settings.setAttribute(QWebEngineSettings.WebAttribute.JavascriptEnabled, True)
+                settings.setAttribute(QWebEngineSettings.WebAttribute.LocalStorageEnabled, True)
+                settings.setAttribute(QWebEngineSettings.WebAttribute.JavascriptCanOpenWindows, True)
+                self.web_profile.cookieStore().cookieAdded.connect(self.on_webengine_cookie_added)
+                self.web_profile.cookieStore().loadAllCookies()
+
+            # Initialize WebEngine View
+            self.webview = QWebEngineView()
+            self.webpage = CustomWebEnginePage(self.web_profile, self.webview)
+            self.webview.setPage(self.webpage)
+
+            if hasattr(self, 'btn_web_back'):
+                self.btn_web_back.clicked.connect(self.webview.back)
+            if hasattr(self, 'btn_web_fwd'):
+                self.btn_web_fwd.clicked.connect(self.webview.forward)
+            if hasattr(self, 'btn_web_reload'):
+                self.btn_web_reload.clicked.connect(self.webview.reload)
+            if hasattr(self, 'btn_web_fb'):
+                self.btn_web_fb.clicked.connect(lambda: self.webview.load(QUrl("https://www.facebook.com")))
+            if hasattr(self, 'btn_web_mbs'):
+                self.btn_web_mbs.clicked.connect(lambda: self.webview.load(QUrl("https://business.facebook.com/latest/home")))
+            if hasattr(self, 'btn_web_save'):
+                self.btn_web_save.clicked.connect(self.manual_save_inapp_cookies)
+
+            self.webview.urlChanged.connect(lambda u: self.txt_url.setText(u.toString()))
+            self.webview.loadProgress.connect(self.on_load_progress)
+            self.webview.loadFinished.connect(self.on_load_finished)
+
+            if hasattr(self, 'browser_placeholder') and self.browser_placeholder:
+                self.browser_placeholder.setParent(None)
+                self.browser_placeholder = None
+
+            if hasattr(self, 'browser_content_layout'):
+                self.browser_content_layout.insertWidget(2, self.webview)
+
+            self.webview.load(QUrl("https://business.facebook.com/latest/home"))
+        except Exception as e:
+            print(f"[AppGUI] Error initializing In-App WebEngine: {e}")
         return widget
 
     def navigate_to_url(self):
@@ -1165,7 +1207,7 @@ class MainWindow(QMainWindow):
         self.table_queue.doubleClicked.connect(self.on_table_row_double_clicked)
         layout.addWidget(self.table_queue)
 
-        self.refresh_queue_table()
+        # Table will populate when user clicks Tab 3 (on_tab_changed) or via deferred singleShot
         return widget
 
     def create_settings_tab(self) -> QWidget:
@@ -1792,6 +1834,8 @@ class MainWindow(QMainWindow):
     def on_tab_changed(self, index: int):
         if index == 0:
             self.update_dashboard_pages_display()
+        elif index == 1:
+            self.ensure_browser_initialized()
         elif index == 3:
             self.refresh_queue_stats()
             self.refresh_queue_table()

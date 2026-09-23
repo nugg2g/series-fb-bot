@@ -363,12 +363,30 @@ class QueueManager:
             except Exception:
                 pass
 
-    def get_stats(self, target_folder: Optional[str] = None, completed_folder: Optional[str] = None) -> Dict[str, int]:
+    def get_stats(self, target_folder: Optional[str] = None, completed_folder: Optional[str] = None, fast: bool = True) -> Dict[str, int]:
         all_videos = self.scan_videos(target_folder=target_folder)
-        pending = self.get_pending_videos(target_folder=target_folder, completed_folder=completed_folder)
         files_map = self.history.get("files", {})
         success_count = sum(1 for r in files_map.values() if r.get("status") == "success")
         failed_count = sum(1 for r in files_map.values() if r.get("status") == "failed")
+
+        if fast:
+            # Ultra-fast O(1) in-memory check without touching slow network disk or computing SHA-256 hashes
+            pending_count = 0
+            for v in all_videos:
+                b = os.path.basename(v)
+                if b in files_map and files_map[b].get("status") == "success":
+                    continue
+                pending_count += 1
+            duplicates_count = len(all_videos) - pending_count
+            return {
+                "total_in_folder": len(all_videos),
+                "pending_in_folder": pending_count,
+                "duplicates_in_folder": max(0, duplicates_count),
+                "total_uploaded": success_count,
+                "total_failed": failed_count
+            }
+
+        pending = self.get_pending_videos(target_folder=target_folder, completed_folder=completed_folder)
         duplicates_count = len(all_videos) - len(pending)
         return {
             "total_in_folder": len(all_videos),
