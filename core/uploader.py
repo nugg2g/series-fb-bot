@@ -249,6 +249,7 @@ class ReelsUploader:
         :param target_page: Optional specific target page dict {"page_name": ..., "page_id": ...}
         :return: True if successful, False otherwise
         """
+        image_path = os.path.normpath(os.path.abspath(image_path))
         if not os.path.exists(image_path):
             self.log(f"❌ ບໍ່ພົບໄຟລ໌ຮູບພາບ: {image_path}")
             return False

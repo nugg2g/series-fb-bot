@@ -190,6 +190,7 @@ class CtaPoster:
         """
         Automates creating and publishing an image post on Meta Business Suite.
         """
+        image_path = os.path.normpath(os.path.abspath(image_path))
         if not os.path.exists(image_path):
             self.log(f"❌ ไม่พบไฟล์รูปภาพ CTA: {image_path}")
             return False
