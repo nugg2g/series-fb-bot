@@ -44,12 +44,14 @@ class ReelsUploader:
             return None
 
     def dismiss_popups(self):
-        """Dismisses any random guide or onboarding popups in Meta Business Suite"""
+        """Dismisses any random guide, banner or onboarding popups in Meta Business Suite safely"""
         try:
             close_selectors = [
-                'div[aria-label="Close"]',
-                'div[aria-label="ปิด"]',
-                'div[aria-label="ປິດ"]',
+                'div[role="banner"] button[aria-label*="close" i]',
+                'div[role="banner"] div[aria-label*="close" i]',
+                'div[role="dialog"] div[aria-label="Close"]',
+                'div[role="dialog"] div[aria-label="ปิด"]',
+                'div[role="dialog"] div[aria-label="ປິດ"]',
                 'button:has-text("ไม่ใช่ตอนนี้")',
                 'button:has-text("Not now")',
                 'button:has-text("ບໍ່ແມ່ນຕອນນີ້")',
@@ -59,7 +61,7 @@ class ReelsUploader:
             ]
             for sel in close_selectors:
                 el = self.page.locator(sel).first
-                if el.is_visible(timeout=1000):
+                if el.is_visible(timeout=500):
                     el.click()
                     time.sleep(1)
         except Exception:
@@ -311,7 +313,7 @@ class ReelsUploader:
 
             # 7. Wait for completion confirmation
             self.emit_progress(95, "ລໍຖ້າການຢືນຢັນຈາກ Facebook...")
-            confirmed = self.wait_for_publish_complete(timeout_seconds=60)
+            confirmed = self.wait_for_publish_complete(timeout_seconds=120)
 
             if confirmed:
                 self.emit_progress(100, f"✅ ໂພສຮູບພາບສຳເລັດ: {filename}")
@@ -688,6 +690,38 @@ class ReelsUploader:
             self.log(f"Warning setting schedule: {e}. Defaulting to Publish Now.")
 
     def get_publish_button(self):
+        """
+        Locates the exact, clickable submit button (Publish / แชร์ / เผยแพร่ / โพสต์)
+        prioritizing actionable button and role=button elements in the bottom toolbar.
+        """
+        # 1. Primary selectors targeting interactive button elements
+        publish_selectors = [
+            'button[type="submit"]:has-text("Publish")',
+            'button[type="submit"]:has-text("เผยแพร่")',
+            'button[type="submit"]:has-text("แชร์")',
+            'button[type="submit"]:has-text("โพสต์")',
+            'div[role="button"]:has-text("Publish"):not(:has-text("later"))',
+            'button:has-text("Publish"):not(:has-text("later"))',
+            'div[role="button"]:has-text("เผยแพร่")',
+            'button:has-text("เผยแพร่")',
+            'div[role="button"]:has-text("แชร์")',
+            'button:has-text("แชร์")',
+            'div[role="button"]:has-text("โพสต์")',
+            'button:has-text("โพสต์")',
+            'div[role="button"]:has-text("ແບ່ງປັນ")',
+            'button:has-text("ແບ່ງປັນ")',
+            'div[role="button"]:has-text("Share")',
+            'button:has-text("Share")'
+        ]
+        for sel in publish_selectors:
+            try:
+                btn = self.page.locator(sel).last
+                if btn.is_visible(timeout=300):
+                    return btn
+            except Exception:
+                pass
+
+        # 2. Text locator with ancestor lookup
         publish_btn = self.page.get_by_text("แชร์", exact=True).or_(
             self.page.get_by_text("โพสต์", exact=True)
         ).or_(
@@ -699,29 +733,34 @@ class ReelsUploader:
         ).or_(
             self.page.get_by_text("ແບ່ງປັນ", exact=True)
         ).last
-        if publish_btn.is_visible(timeout=1000):
+        if publish_btn.is_visible(timeout=500):
+            try:
+                parent_btn = publish_btn.locator('xpath=ancestor-or-self::*[@role="button" or self::button]').last
+                if parent_btn.is_visible(timeout=300):
+                    return parent_btn
+            except Exception:
+                pass
             return publish_btn
 
-        publish_selectors = [
-            'div[role="button"]:has-text("แชร์")',
-            'div[role="button"]:has-text("โพสต์")',
-            'div[role="button"]:has-text("เผยแพร่")',
-            'div[role="button"]:has-text("ແບ່ງປັນ")',
-            'div[role="button"]:has-text("Publish")',
-            'div[role="button"]:has-text("Share")',
-            'button:has-text("แชร์")',
-            'button:has-text("โพสต์")',
-            'button:has-text("เผยแพร่")',
-            'button:has-text("ແບ່ງປັນ")',
-            'button:has-text("Publish")'
-        ]
-        for sel in publish_selectors:
-            btn = self.page.locator(sel).last
-            if btn.is_visible(timeout=500):
-                return btn
         return None
 
     def get_schedule_button(self):
+        sched_selectors = [
+            'div[role="button"]:has-text("กำหนดเวลา")',
+            'div[role="button"]:has-text("Schedule")',
+            'div[role="button"]:has-text("ຕັ້ງເວລາ")',
+            'button:has-text("กำหนดเวลา")',
+            'button:has-text("Schedule")',
+            'button:has-text("ຕັ້ງເວລາ")'
+        ]
+        for sel in sched_selectors:
+            try:
+                btn = self.page.locator(sel).last
+                if btn.is_visible(timeout=300):
+                    return btn
+            except Exception:
+                pass
+
         schedule_btn = self.page.get_by_text("กำหนดเวลา", exact=True).or_(
             self.page.get_by_text("Schedule", exact=True)
         ).or_(
@@ -731,20 +770,15 @@ class ReelsUploader:
         ).or_(
             self.page.get_by_text("ແບ່ງປັນ", exact=True)
         ).last
-        if schedule_btn.is_visible(timeout=1000):
+        if schedule_btn.is_visible(timeout=500):
+            try:
+                parent_btn = schedule_btn.locator('xpath=ancestor-or-self::*[@role="button" or self::button]').last
+                if parent_btn.is_visible(timeout=300):
+                    return parent_btn
+            except Exception:
+                pass
             return schedule_btn
 
-        sched_selectors = [
-            'div[role="button"]:has-text("กำหนดเวลา")',
-            'div[role="button"]:has-text("Schedule")',
-            'div[role="button"]:has-text("ຕັ້ງເວລາ")',
-            'button:has-text("กำหนดเวลา")',
-            'button:has-text("Schedule")'
-        ]
-        for sel in sched_selectors:
-            btn = self.page.locator(sel).last
-            if btn.is_visible(timeout=500):
-                return btn
         return self.get_publish_button()
 
     def is_element_disabled(self, locator) -> bool:
@@ -766,11 +800,11 @@ class ReelsUploader:
 
     def wait_and_click_publish(self, is_schedule: bool = False, max_wait_seconds: int = 600) -> bool:
         """
-        Waits until the video upload has completely finished and the Share / Schedule button is truly enabled.
+        Waits until the upload has finished and the Share / Schedule button is truly enabled.
         Prevents submitting premature uploads while still uploading in the background.
         """
         btn_name = "Schedule (กำหนดเวลา)" if is_schedule else "แชร์ (Publish)"
-        self.log(f"⏳ กำลังรอให้วิดีโออัปโหลดขึ้นระบบครบ 100% และปุ่ม '{btn_name}' พร้อมทำงาน...")
+        self.log(f"⏳ กำลังรอให้สื่ออัปโหลดขึ้นระบบครบ 100% และปุ่ม '{btn_name}' พร้อมทำงาน...")
         start = time.time()
         last_pct = None
 
@@ -781,22 +815,23 @@ class ReelsUploader:
                 return el ? el.innerText.trim() : null;
             }""")
             if progress and progress != last_pct:
-                self.log(f"📊 ความคืบหน้าการอัปโหลดไฟล์วิดีโอ: {progress}")
+                self.log(f"📊 ความคืบหน้าการอัปโหลดไฟล์: {progress}")
                 last_pct = progress
 
             btn = self.get_schedule_button() if is_schedule else self.get_publish_button()
             if btn and btn.is_visible():
                 disabled = self.is_element_disabled(btn)
                 if not disabled:
-                    self.log(f"✅ วิดีโออัปโหลดเสร็จสมบูรณ์ 100%! ปุ่ม '{btn_name}' พร้อมใช้งานแล้ว.")
+                    self.log(f"✅ สื่ออัปโหลดเสร็จสมบูรณ์ 100%! ปุ่ม '{btn_name}' พร้อมใช้งานแล้ว.")
                     time.sleep(1)
                     self.dismiss_popups()
+
+                    clicked = False
                     try:
-                        self.page.keyboard.press("Escape")
+                        btn.scroll_into_view_if_needed(timeout=2000)
                     except Exception:
                         pass
 
-                    clicked = False
                     try:
                         btn.click(timeout=5000)
                         clicked = True
@@ -807,11 +842,19 @@ class ReelsUploader:
                             clicked = True
                         except Exception as e_force:
                             self.log(f"Notice: Force click failed ({e_force}), falling back to JavaScript click...")
-                            try:
-                                btn.evaluate("el => el.click()")
-                                clicked = True
-                            except Exception as e_js:
-                                self.log(f"Warning: JavaScript click failed: {e_js}")
+
+                    # ALWAYS also trigger native browser events in JS to guarantee React handles the submission
+                    try:
+                        btn.evaluate("""el => {
+                            let target = el.closest('button, div[role="button"]') || el;
+                            target.focus();
+                            ['mouseover', 'mousedown', 'mouseup', 'click'].forEach(evt => {
+                                target.dispatchEvent(new MouseEvent(evt, { bubbles: true, cancelable: true, view: window }));
+                            });
+                        }""")
+                        clicked = True
+                    except Exception:
+                        pass
 
                     if clicked:
                         self.log(f"🚀 กดปุ่ม '{btn_name}' เรียบร้อยแล้ว.")
@@ -819,11 +862,11 @@ class ReelsUploader:
                 else:
                     if int(time.time() - start) % 15 == 0:
                         pct_msg = f" ({progress})" if progress else ""
-                        self.log(f"⏳ วิดีโอกำลังประมวลผลบนเซิร์ฟเวอร์{pct_msg}... รอให้ปุ่ม '{btn_name}' ปลดล็อค")
+                        self.log(f"⏳ สื่อกำลังประมวลผลบนเซิร์ฟเวอร์{pct_msg}... รอให้ปุ่ม '{btn_name}' ปลดล็อค")
 
             time.sleep(2)
 
-        raise Exception(f"หมดเวลารอ (Timeout 600s): ปุ่ม '{btn_name}' ยังคงถูกปิดใช้งาน (Disabled) อาจเป็นเพราะไฟล์ใหญ่เกินไปหรืออินเทอร์เน็ตหลุด")
+        raise Exception(f"หมดเวลารอ (Timeout 600s): ปุ่ม '{btn_name}' ยังคงถูกปิดใช้งาน (Disabled)")
 
     def wait_for_publish_complete(self, timeout_seconds: int = 120) -> bool:
         """
@@ -836,8 +879,30 @@ class ReelsUploader:
         self.log("⏳ กำลังติดตามการยืนยันการโพสต์จาก Facebook...")
         time.sleep(4)
         start = time.time()
+        last_retry_click = time.time()
 
         while time.time() - start < timeout_seconds:
+            # Retry click after 14s if Publish button is still sitting enabled on screen
+            if time.time() - last_retry_click > 14:
+                last_retry_click = time.time()
+                try:
+                    p_btn = self.get_publish_button()
+                    if p_btn and p_btn.is_visible() and not self.is_element_disabled(p_btn):
+                        self.log("🔄 ປຸ່ມ Publish ຍັງຄົງເປີດຢູ່ (ຍັງບໍ່ທັນໄປ), ກຳລັງກົດຊ້ຳອີກຄັ້ງ (Retry Click)...")
+                        try:
+                            p_btn.click(force=True, timeout=3000)
+                        except Exception:
+                            pass
+                        try:
+                            p_btn.evaluate("""el => {
+                                let target = el.closest('button, div[role="button"]') || el;
+                                target.click();
+                            }""")
+                        except Exception:
+                            pass
+                except Exception:
+                    pass
+
             # 1. Check for error alerts or toast messages
             error_msg = self.page.evaluate("""() => {
                 let alert = document.querySelector('div[role="alert"], div[aria-label*="Error" i], div[aria-label*="ข้อผิดพลาด" i]');
@@ -858,7 +923,7 @@ class ReelsUploader:
             # 2. Check if URL redirected away from composer to content management, planner, or home
             curr_url = self.page.url.lower()
             is_composer_url = ("reels_composer" in curr_url or "composer" in curr_url)
-            if ("content_management" in curr_url or "planner" in curr_url or "home" in curr_url or "posts" in curr_url) and not is_composer_url:
+            if ("content_management" in curr_url or "planner" in curr_url or "home" in curr_url or "published_posts" in curr_url or "all_posts" in curr_url) and not ("reels_composer" in curr_url or curr_url.endswith("/composer")):
                 self.log(f"🎉 ໜ້າເວັບປ່ຽນໄປທີ່: {curr_url} (ຢືນຢັນການໂພສສຳເລັດ ແລະ ປິດໜ້າ Composer ຮຽບຮ້ອຍ)")
                 self.save_screenshot("publish_success_redirect")
                 return True
@@ -877,6 +942,8 @@ class ReelsUploader:
                         t.includes('Reel scheduled') || t.includes('กำหนดเวลาคลิปรีลแล้ว') ||
                         t.includes('โพสต์ของคุณแล้ว') || t.includes('แชร์โพสต์แล้ว') ||
                         t.includes('Your post has been published') || t.includes('Post published') ||
+                        t.includes('Your post is published') || t.includes('Post is published') ||
+                        t.includes('Your post is live') ||
                         t.includes('Post scheduled') || t.includes('กำหนดเวลาโพสต์แล้ว') ||
                         t.includes('ໂພສຮູບພາບແລ້ວ') || t.includes('ໂພສແລ້ວ')) {
                         return t;
@@ -901,9 +968,11 @@ class ReelsUploader:
             # 4. Check if the composer form has closed / vanished from the screen
             is_composer_open = self.page.evaluate("""() => {
                 let composer = document.querySelector('div[aria-label*="reel" i], div[aria-label*="รีล" i], div[aria-label*="ຣີລ" i], div[aria-label*="post" i], div[aria-label*="โพสต์" i], form');
-                return !!composer && (composer.innerText.includes('Caption') || composer.innerText.includes('คำอธิบาย') || composer.innerText.includes('ຄຳອະທິບາຍ'));
+                if (!composer) return false;
+                let text = composer.innerText || '';
+                return text.includes('Caption') || text.includes('คำอธิบาย') || text.includes('ຄຳອະທິບາຍ') || text.includes('What\\'s on your mind') || text.includes('คุณกำลังคิดอะไรอยู่');
             }""")
-            if not is_composer_open and (not is_composer_url or "home" in curr_url):
+            if not is_composer_open and int(time.time() - start) > 8:
                 self.log("🎉 ໜ້າຕ່າງ Composer ປິດຕົວລົງຮຽບຮ້ອຍ (ຢືນຢັນການໂພສສຳເລັດ)")
                 self.save_screenshot("publish_success_closed")
                 return True
