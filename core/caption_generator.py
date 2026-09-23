@@ -181,12 +181,53 @@ class CaptionGenerator:
     ]
 
     GENERIC_NAME_PATTERNS = [
-        r'^\d+$',                                     # purely numbers: 123456
-        r'^(vid|video|clip|reels|mov|media|file|export|output|download|temp|untitled)[_\-\d]*$', # vid_01, video1
-        r'^[a-f0-9]{16,64}$',                         # hex hash / md5 / uuid
-        r'^\d{4}[\-_]?\d{2}[\-_]?\d{2}[_\-\d]*$',     # date timestamp: 20260918_120000
-        r'^(tiktok|snapinst|fb|facebook|instagram)[_\-\w\d]*$', # downloader tags
-        r'^[\W_]+$'                                   # only symbols
+        r'^\d+$',                                              # purely numbers: 123456
+        r'^(vid|video|clip|reels|mov|media|file|export|output|download|temp|untitled)[_\-\s\d]*$', # vid_01, video1, vid 01
+        r'^[a-f0-9]{16,64}$',                                  # hex hash / md5 / uuid
+        r'^\d{4}[\-_]?\d{2}[\-_]?\d{2}[_\-\s\d]*$',            # date timestamp: 20260918_120000
+        r'^(tiktok|snapinst|fb|facebook|instagram)[_\-\s\w\d]*$', # downloader tags
+        r'^[\W_]+$'                                            # only symbols
+    ]
+
+    GENERIC_BOILERPLATE = [
+        r'^(?:ดู|มินิ)?ซีรี่?ย์จีน(?:แนวตั้ง)?$',
+        r'^(?:สมาคมคนรักหนังจีน|แมวติดซีรีส์|คนบ้าหนัง|มาดูหนัง|สปอยหนัง)$',
+        r'^(?:รวมพลคนดูหนัง\d*)$',
+        r'^(?:หนังสั้น|ซีรีย์ส|ซีรี่|ซีรีส์|ละครสั้น)$',
+        r'^(?:คลิป|ตอน|ตอนเต็ม|ตอนเดียวจบ|เต็มเรื่อง|มินิซีรี่ย์|ซีรี่ย์|ซีรีส์)$',
+        r'^(?:ตอนที่\s*\d+|ep\s*\d+|part\s*\d+)$'
+    ]
+
+    TRUNCATED_COMPLETIONS = [
+        (r'ตระกู$', 'ตระกูลใหญ่'),
+        (r'สุดแข็งแ$', 'สุดแข็งแกร่ง'),
+        (r'แข็งแ$', 'แข็งแกร่ง'),
+        (r'ก่อนเปิดตัวเป$', 'ก่อนเปิดตัวเป็นประธานใหญ่'),
+        (r'เปิดตัวเป$', 'เปิดตัวเป็นประธานใหญ่'),
+        (r'ล่าหมู$', 'ล่าหมูป่า'),
+        (r'ทวงแค้$', 'ทวงแค้น'),
+        (r'ล้างแค้$', 'ล้างแค้น'),
+        (r'แก้แค้$', 'แก้แค้น'),
+        (r'มหาเศรษฐ$', 'มหาเศรษฐี'),
+        (r'ประธา$', 'ประธานใหญ่'),
+        (r'ทายา$', 'ทายาท'),
+        (r'เทพสงครา$', 'เทพสงคราม'),
+        (r'ราชั$', 'ราชันย์'),
+        (r'ความทรงจ$', 'ความทรงจำ'),
+        (r'ช่วยชีวิ$', 'ช่วยชีวิต'),
+        (r'ซีรีย์ໃ$', 'ซีรีย์ใหม่ยอดฮิต'),
+        (r'ซีรีย์ใหม$', 'ซีรีย์ใหม่ยอดฮิต'),
+        (r'ซีรีส์ใหม$', 'ซีรีส์ใหม่ยอดฮิต'),
+        (r'ล่าสือท$', 'ล่าเสือ'),
+        (r'เจิดจร$', 'เจิดจรัส'),
+        (r'ปลอมเป็นสา$', 'ปลอมเป็นสามี'),
+        (r'บอกข่าวด$', 'บอกข่าวดี'),
+        (r'สุดท้ายก็ยั$', 'สุดท้ายก็ยังหนีไม่พ้น'),
+        (r'แต่ท่านกลับตามใ$', 'แต่ท่านกลับตามใจข้า'),
+        (r'จุดเชื่อมต$', 'จุดเชื่อมต่อ'),
+        (r'บ้านเดีย$', 'บ้านเดียวกัน'),
+        (r'เริ่มโต้ก$', 'เริ่มโต้กลับ'),
+        (r'ถึงได้รู้ว่าตัว$', 'ถึงได้รู้ว่าตัวเอง')
     ]
 
     # Scraped junk patterns commonly found in downloaded Facebook/TikTok videos
@@ -295,27 +336,117 @@ class CaptionGenerator:
 
         return True
 
-    @staticmethod
-    def clean_filename(filename: str) -> str:
+    @classmethod
+    def clean_filename(cls, filename: str) -> str:
         """
-        Converts filename into a readable, clean title.
+        Converts filename into a readable, clean movie or video title.
+        Intelligently strips scraped Facebook/TikTok junk metrics (views, reactions, shares),
+        brackets, IDs, channel spam, URLs, and video tech tags.
+        Extracts the genuine drama title and completes truncated Thai endings if applicable.
         """
-        base_name = os.path.splitext(os.path.basename(filename))[0]
-        
-        # Remove hashtags from filename first
-        cleaned = re.sub(r'#\S+', ' ', base_name)
-        # Remove brackets/parentheses content
-        cleaned = re.sub(r'\[.*?\]|\(.*?\)', ' ', cleaned)
-        # Convert separators to spaces
-        cleaned = re.sub(r'[_\.-]+', ' ', cleaned)
-        # Remove common video tags/resolutions
-        cleaned = re.sub(r'(?i)\b(1080p|720p|480p|4k|2k|hd|fhd|uhd|hevc|x264|x265|bluray|web-dl|aac|mp4)\b', ' ', cleaned)
-        cleaned = re.sub(r'\s+', ' ', cleaned).strip()
-        
-        if cleaned and cleaned.isascii():
-            cleaned = cleaned.title()
+        base = os.path.splitext(os.path.basename(filename))[0].strip()
+        if not base:
+            return ""
 
-        return cleaned if cleaned else base_name
+        # 1. Remove URLs
+        base = re.sub(r'https?://\S+|heylink\S*', '', base)
+
+        # 2. Remove FB / Reel view/reaction/share metrics header: e.g. '1.1M views · 25K reactions ｜'
+        metric_pat = r'^\s*(?:[\d\.,\s]+[kKmMbB]?\s*(?:views|reactions|shares|likes|การดู|ความรู้สึก|ยอดดู)[\s·,•|｜/\\–—-]*)+[🎬·:|\s–—\u2013\u2014-]*'
+        base = re.sub(metric_pat, '', base, flags=re.IGNORECASE)
+        base = re.sub(r'(?i)\b\d+(\.\d+)?[kmb]?\s*(?:views|reactions|shares|likes|การดู|ความรู้สึก|ยอดดู)\b', '', base)
+
+        # 3. Remove trailing IDs like [1091750576836625] or (1091750576836625)
+        base = re.sub(r'\[\s*\d{6,}\s*\]|\(\s*\d{6,}\s*\)|\{\s*\d{6,}\s*\}', '', base)
+
+        # 4. Remove hashtags
+        base = re.sub(r'#\S+', '', base)
+
+        # 5. Iteratively remove common prefixes and suffixes
+        prefixes = [
+            r'^\s*【[^】]*】',
+            r'^\s*\[[^\]]*\]',
+            r'^\s*\([^\)]*\)',
+            r'^\s*(?:เต็มเรื่องในตอนเดียว|เต็มเ?เรื่อง|เต็​มเรื่อง|เต็มเรือง|ตอนเต็ม|ตอนเดียวจบ|คลิปเต็ม|พากย์ไทยเต็มเรื่อง)',
+            r'^\s*FULL[\s–—\u2013\u2014-]*',
+            r'^\s*(?:มินิซีรี่ย์จีน|มินิซีรี่ย์|ซีรี่ย์จีน|ซีรีส์จีน|หนังสั้นจีน|หนังสั้น|ละครสั้น)',
+            r'^\s*#\d+\s*',
+        ]
+        suffixes = [
+            r'[｜|]\s*(?:มินิซีรี่ย์จีน|มินิซีรี่ย์|ซีรี่ย์จีน|ซีรีส์จีน|ดูหนัง\s*ดูซีรีย์|เสื้อยืดปลีก-ส่ง|Cheng Rat|สปอยหนัง.*|คนบ้าหนัง.*|แมวติดซีรีส์.*).*$',
+            r'on Reels.*$',
+            r'ฝากกด\s*(?:ไลก|ติดตาม).*$',
+            r'กดติดตาม.*$',
+            r'จะได้ไม่พลาด.*$',
+            r'เพื่อจะได้ไม่พลาด.*$',
+            r'\(?ตอนเดียวจบ\)?$',
+            r'\(?เต็มเรื่อง\)?$',
+            r'【?เต็มเรื่อง】?$',
+            r'\[?เต็มเรื่อง\]?$',
+            r'#\S*$',
+        ]
+        for _ in range(5):
+            changed = False
+            for p in prefixes:
+                new_base = re.sub(p, '', base, flags=re.IGNORECASE).strip()
+                if new_base != base:
+                    base = new_base
+                    changed = True
+            for s in suffixes:
+                new_base = re.sub(s, '', base, flags=re.IGNORECASE).strip()
+                if new_base != base:
+                    base = new_base
+                    changed = True
+
+            base = re.sub(r'^[｜|🎬·:–—\u2013\u2014\-\s🦈🎞️💯🔥🍎🍊👉🔊👇💥✨❤️👑_]+', '', base).strip()
+            base = re.sub(r'[｜|🎬·:–—\u2013\u2014\-\s🦈🎞️💯🔥🍎🍊👉🔊👇💥✨❤️👑_.]+$', '', base).strip()
+            if not changed:
+                break
+
+        # 6. Convert underscores and separators to spaces if latin or tokenized
+        if '_' in base or '.' in base or '-' in base:
+            base = re.sub(r'[_\.-]+', ' ', base)
+
+        # 7. Remove bracketed technical specs: [1080p], (720p), [fhd], etc.
+        base = re.sub(r'\[\s*(?i:1080p|720p|480p|4k|2k|hd|fhd|uhd|hevc|x264|x265|bluray|web-dl|aac|mp4)\s*\]', ' ', base)
+        base = re.sub(r'\(\s*(?i:1080p|720p|480p|4k|2k|hd|fhd|uhd|hevc|x264|x265|bluray|web-dl|aac|mp4)\s*\)', ' ', base)
+        base = re.sub(r'\[\s*\]|\(\s*\)|\{\s*\}', ' ', base)
+
+        # 8. Strip standalone resolution/tech tags
+        base = re.sub(r'(?i)\b(1080p|720p|480p|4k|2k|hd|fhd|uhd|hevc|x264|x265|bluray|web-dl|aac|mp4)\b', ' ', base)
+
+        # 9. Clean dangling unmatched brackets at ends
+        base = re.sub(r'^[()\[\]{}]+|[()\[\]{}]+$', '', base).strip()
+
+        # 10. Clean up extra punctuation/spaces
+        base = re.sub(r'^[^\w\u0E00-\u0E7F\u0E80-\u0EFF]+|[^\w\u0E00-\u0E7F\u0E80-\u0EFF]+$', '', base).strip()
+        base = re.sub(r'\s+', ' ', base).strip()
+
+        # 11. Check if what remains is purely generic boilerplate
+        for b_pat in cls.GENERIC_BOILERPLATE:
+            if re.search(b_pat, base, re.IGNORECASE):
+                return ""
+
+        for g_pat in cls.GENERIC_NAME_PATTERNS:
+            if re.match(g_pat, base.lower()):
+                return ""
+
+        # Check if there are meaningful chars
+        char_count = len(re.findall(r'[\u0E00-\u0E7F\u0E80-\u0EFFa-zA-Z0-9]', base))
+        if char_count < 3:
+            return ""
+
+        # 12. Complete truncated endings if matched
+        for pat, repl in cls.TRUNCATED_COMPLETIONS:
+            if re.search(pat, base):
+                base = re.sub(pat, repl, base)
+                break
+
+        # 13. If ASCII, format as Title Case
+        if base.isascii():
+            base = base.title()
+
+        return base
 
     def extract_cover_frame(self, video_path: str, timestamp_sec: float = 1.0) -> Optional[str]:
         """
@@ -379,18 +510,7 @@ class CaptionGenerator:
         Strips views, reactions, boilerplate download spam, URLs, and IDs,
         leaving only meaningful story keywords if any exist.
         """
-        base = os.path.splitext(os.path.basename(filename))[0]
-        base = re.sub(r'https?://\S+|heylink\S*', '', base)
-        base = re.sub(r'(?i)\b\d+(\.\d+)?[kmb]?\s*(views|reactions|shares|likes|การดู|ความรู้สึก|ยอดดู)\b', '', base)
-        base = re.sub(r'(?i)\b(full|hd|fhd|mp4|ep\d*|part\d*)\b', '', base)
-        base = re.sub(r'(?i)(เต็ม\s*เรื่?อง|กด\s*ติดตาม|เพื่อ\s*จะ\s*ได้\s*ไม่\s*พลาด|จะ\s*ได้\s*ไม่\s*พลาด|ภาคแรก|ภาคสอง|คลิปเต็ม|chinesedrama|reelsdrama|tbreels|typ)', '', base)
-        base = re.sub(r'#\S*', '', base)
-        base = re.sub(r'\[\d+\]|\(\d+\)', '', base)
-        base = re.sub(r'[·｜|👉🎬🦈🎞️\-_()\[\]{}]+', ' ', base)
-        base = re.sub(r'\s+', ' ', base).strip().strip('. ')
-        if len(base) <= 3:
-            return ""
-        return base
+        return cls.clean_filename(filename)
 
     @classmethod
     def is_meaningful_drama_hint(cls, hint: str) -> bool:
@@ -779,17 +899,17 @@ class CaptionGenerator:
                 pass
         return None
 
-    def build_caption(self, video_path: str, index: int = 1, custom_template: Optional[str] = None, custom_hashtag_pool: Optional[List[str]] = None, title_prefix: Optional[str] = None, content_type: str = "china_drama") -> Dict[str, Any]:
+    def build_caption(self, video_path: str, index: int = 1, custom_template: Optional[str] = None, custom_hashtag_pool: Optional[List[str]] = None, title_prefix: Optional[str] = None, content_type: str = "china_drama", title_mode: Optional[str] = None) -> Dict[str, Any]:
         """
         Builds title and full caption for a given video or photo file.
         Priority:
         1. Companion .txt file (e.g. clip1.txt or photo1.txt with user-specified caption details).
-        2. Clean filename (if configured).
+        2. Clean filename (if configured via title_mode == 'filename_clean').
         3. Gemini AI Vision + Text analysis matching Content Preset.
         4. Curated Pool fallback.
         """
         raw_name = os.path.splitext(os.path.basename(video_path))[0]
-        title_mode = self.config.get("title_mode", "auto_ai_drama")
+        actual_title_mode = title_mode or self.config.get("title_mode", "auto_ai_drama")
         cover_path = None
         tpl = custom_template or self.template
 
@@ -835,34 +955,38 @@ class CaptionGenerator:
                     "cover_path": None
                 }
 
-        # If user explicitly configured 'filename_clean' AND the filename is genuinely clean (not scraped junk)
-        if title_mode == "filename_clean" and self.is_meaningful_filename(video_path):
+        # If user explicitly configured 'filename_clean' (use clean title extracted from filename)
+        if actual_title_mode == "filename_clean":
             clean_title = self.clean_filename(video_path)
-            if self.config.get("add_episode_number", False):
-                if not re.search(r'(?i)\b(ep|episode|part|ตอน|ຕອນ)\b', clean_title):
-                    clean_title = f"{clean_title} ตอนที่ {index}"
+            if clean_title and len(clean_title) >= 3:
+                if self.config.get("add_episode_number", False):
+                    if not re.search(r'(?i)\b(ep|episode|part|ตอน|ຕອນ)\b', clean_title):
+                        clean_title = f"{clean_title} ตอนที่ {index}"
+                else:
+                    clean_title = re.sub(r'(?:\s*ตอนที่\s*\d+|\s*ตอน\s*\d+|\s*ep\s*\d+|\s*part\s*\d+)+$', '', clean_title, flags=re.IGNORECASE).strip()
+
+                clean_title = self.apply_title_prefix(clean_title, title_prefix)
+
+                tags_list = self.get_hashtags() if not custom_hashtag_pool else custom_hashtag_pool[:self.tags_count]
+                tags_str = " ".join(tags_list)
+                caption = tpl.replace("{title}", clean_title)\
+                             .replace("{filename}", raw_name)\
+                             .replace("{tags}", tags_str)\
+                             .replace("{index}", str(index))\
+                             .replace("{date}", datetime.now().strftime("%Y-%m-%d"))\
+                             .replace("{time}", datetime.now().strftime("%H:%M"))
+                if not self.config.get("add_episode_number", False):
+                    caption = caption.replace("ติดตามตอนใหม่ๆ", "ติดตามเรื่องใหม่ๆ").replace("เพื่อไม่พลาดตอนต่อไป", "เพื่อไม่พลาดเรื่องต่อไป")
+                caption = re.sub(r'(\[เต็มเรื่อง\]|\(เต็มเรื่อง\)|【เต็มเรื่อง】)\s*(\[เต็มเรื่อง\]|\(เต็มเรื่อง\)|【เต็มเรื่อง】)', r'\1', caption)
+                print(f"[CaptionGenerator] 📁 [Filename Mode] Extracted Clean Title from filename: '{clean_title}'")
+                return {
+                    "title": clean_title,
+                    "caption": caption.strip(),
+                    "source": "filename",
+                    "cover_path": None
+                }
             else:
-                clean_title = re.sub(r'(?:\s*ตอนที่\s*\d+|\s*ตอน\s*\d+|\s*ep\s*\d+|\s*part\s*\d+)+$', '', clean_title, flags=re.IGNORECASE).strip()
-
-            clean_title = self.apply_title_prefix(clean_title, title_prefix)
-
-            tags_list = self.get_hashtags() if not custom_hashtag_pool else custom_hashtag_pool[:self.tags_count]
-            tags_str = " ".join(tags_list)
-            caption = tpl.replace("{title}", clean_title)\
-                         .replace("{filename}", raw_name)\
-                         .replace("{tags}", tags_str)\
-                         .replace("{index}", str(index))\
-                         .replace("{date}", datetime.now().strftime("%Y-%m-%d"))\
-                         .replace("{time}", datetime.now().strftime("%H:%M"))
-            if not self.config.get("add_episode_number", False):
-                caption = caption.replace("ติดตามตอนใหม่ๆ", "ติดตามเรื่องใหม่ๆ").replace("เพื่อไม่พลาดตอนต่อไป", "เพื่อไม่พลาดเรื่องต่อไป")
-            caption = re.sub(r'(\[เต็มเรื่อง\]|\(เต็มเรื่อง\)|【เต็มเรื่อง】)\s*(\[เต็มเรื่อง\]|\(เต็มเรื่อง\)|【เต็มเรื่อง】)', r'\1', caption)
-            return {
-                "title": clean_title,
-                "caption": caption.strip(),
-                "source": "filename",
-                "cover_path": None
-            }
+                print(f"[CaptionGenerator] ⚠️ [Filename Mode] Filename '{raw_name[:50]}' had no extractable story title -> falling back to AI / curated pool.")
 
         # Extract story hints from video filename
         story_hints = self.extract_story_hints(raw_name)

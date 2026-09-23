@@ -192,6 +192,7 @@ class ReelUploadEngine:
                     g_title_prefix = group.get("title_prefix")
                     if g_title_prefix is None and g_id == "group_shared_3pages":
                         g_title_prefix = "[เต็มเรื่อง] "
+                    g_title_mode = group.get("title_mode") or self.config.get("title_mode", "filename_clean")
                     g_pages = group.get("pages", [])
 
                     if not g_pages:
@@ -245,7 +246,8 @@ class ReelUploadEngine:
                         custom_template=g_caption_tpl,
                         custom_hashtag_pool=g_tags_pool,
                         title_prefix=g_title_prefix,
-                        content_type=g_content_type
+                        content_type=g_content_type,
+                        title_mode=g_title_mode
                     )
                     title = cap_data["title"]
                     caption = cap_data["caption"]
