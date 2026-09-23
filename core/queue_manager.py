@@ -10,6 +10,8 @@ class QueueManager:
     VIDEO_EXTENSIONS = ('.mp4', '.mov', '.mkv', '.avi', '.webm', '.flv', '.wmv')
     IMAGE_EXTENSIONS = ('.jpg', '.jpeg', '.png', '.webp')
     SUPPORTED_EXTENSIONS = VIDEO_EXTENSIONS + IMAGE_EXTENSIONS
+    VIDEO_EXTS = VIDEO_EXTENSIONS
+    IMAGE_EXTS = IMAGE_EXTENSIONS
 
     @staticmethod
     def is_image_file(file_path: str) -> bool:
