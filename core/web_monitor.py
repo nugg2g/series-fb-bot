@@ -1527,9 +1527,75 @@ class CloudflareTunnelManager:
             pass
         return False
 
+    @staticmethod
+    def kill_stale_tunnels():
+        """Kills any orphaned cloudflared processes on Windows"""
+        if sys.platform == "win32":
+            try:
+                subprocess.run(["taskkill", "/F", "/IM", "cloudflared.exe"], capture_output=True)
+            except Exception:
+                pass
+
     def start_tunnel_async(self, on_url_ready: Optional[Callable[[str], None]] = None):
+        self.kill_stale_tunnels()
         t = threading.Thread(target=self._run_tunnel, args=(on_url_ready,), daemon=True)
         t.start()
+
+    def _attach_job_object(self):
+        """Attaches self.proc to a Windows Job Object that auto-terminates child processes when parent dies."""
+        if sys.platform != "win32" or not self.proc:
+            return
+        try:
+            import ctypes
+            from ctypes import wintypes
+            JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE = 0x2000
+            h_job = ctypes.windll.kernel32.CreateJobObjectW(None, None)
+            if h_job:
+                class JOBOBJECT_BASIC_LIMIT_INFORMATION(ctypes.Structure):
+                    _fields_ = [
+                        ("PerProcessUserTimeLimit", wintypes.LARGE_INTEGER),
+                        ("PerJobUserTimeLimit", wintypes.LARGE_INTEGER),
+                        ("LimitFlags", wintypes.DWORD),
+                        ("MinimumWorkingSetSize", ctypes.c_size_t),
+                        ("MaximumWorkingSetSize", ctypes.c_size_t),
+                        ("ActiveProcessLimit", wintypes.DWORD),
+                        ("Affinity", ctypes.c_size_t),
+                        ("PriorityClass", wintypes.DWORD),
+                        ("SchedulingClass", wintypes.DWORD),
+                    ]
+                class IO_COUNTERS(ctypes.Structure):
+                    _fields_ = [
+                        ("ReadOperationCount", wintypes.ULARGE_INTEGER),
+                        ("WriteOperationCount", wintypes.ULARGE_INTEGER),
+                        ("OtherOperationCount", wintypes.ULARGE_INTEGER),
+                        ("ReadTransferCount", wintypes.ULARGE_INTEGER),
+                        ("WriteTransferCount", wintypes.ULARGE_INTEGER),
+                        ("OtherTransferCount", wintypes.ULARGE_INTEGER),
+                    ]
+                class JOBOBJECT_EXTENDED_LIMIT_INFORMATION(ctypes.Structure):
+                    _fields_ = [
+                        ("BasicLimitInformation", JOBOBJECT_BASIC_LIMIT_INFORMATION),
+                        ("IoInfo", IO_COUNTERS),
+                        ("ProcessMemoryLimit", ctypes.c_size_t),
+                        ("JobMemoryLimit", ctypes.c_size_t),
+                        ("PeakProcessMemoryLimit", ctypes.c_size_t),
+                        ("PeakJobMemoryLimit", ctypes.c_size_t),
+                    ]
+                info = JOBOBJECT_EXTENDED_LIMIT_INFORMATION()
+                info.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE
+                JobObjectExtendedLimitInformation = 9
+                ctypes.windll.kernel32.SetInformationJobObject(
+                    h_job,
+                    JobObjectExtendedLimitInformation,
+                    ctypes.byref(info),
+                    ctypes.sizeof(info)
+                )
+                h_proc = ctypes.windll.kernel32.OpenProcess(0x1F0FFF, False, self.proc.pid)
+                if h_proc:
+                    ctypes.windll.kernel32.AssignProcessToJobObject(h_job, h_proc)
+                    ctypes.windll.kernel32.CloseHandle(h_proc)
+        except Exception:
+            pass
 
     def _run_tunnel(self, on_url_ready: Optional[Callable[[str], None]] = None):
         if not self.ensure_binary():
@@ -1544,6 +1610,9 @@ class CloudflareTunnelManager:
                 bufsize=1,
                 creationflags=subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0
             )
+            atexit.register(self.stop)
+            self._attach_job_object()
+
             import re
             pattern = re.compile(r"https://[a-zA-Z0-9\-]+\.trycloudflare\.com")
             for line in iter(self.proc.stdout.readline, ''):
@@ -1562,9 +1631,17 @@ class CloudflareTunnelManager:
     def stop(self):
         if self.proc:
             try:
+                pid = self.proc.pid
                 self.proc.terminate()
+                time.sleep(0.3)
+                if self.proc.poll() is None:
+                    self.proc.kill()
+                if sys.platform == "win32" and pid:
+                    subprocess.run(["taskkill", "/F", "/T", "/PID", str(pid)], capture_output=True)
             except Exception:
                 pass
+            finally:
+                self.proc = None
 
 
 TUNNEL_MGR: Optional[CloudflareTunnelManager] = None
@@ -1610,12 +1687,16 @@ def start_web_monitor(config: Dict[str, Any], action_callback: Optional[Callable
         )
         CLOUD_SYNC_MGR.start()
 
-    # 3. Cloudflare Tunnel if enabled
-    enable_tunnel = config.get("web_monitor", {}).get("enable_tunnel", True)
+    # 3. Cloudflare Tunnel or Clean Render Cloud Relay
+    default_tunnel = False if cloud_url else True
+    enable_tunnel = config.get("web_monitor", {}).get("enable_tunnel", default_tunnel)
     if enable_tunnel:
         TUNNEL_MGR = CloudflareTunnelManager(port=port)
         TUNNEL_MGR.start_tunnel_async(
             on_url_ready=lambda p_url: safe_print(f"🌐 [WebMonitor] Tunnel URL: {p_url}")
         )
+    else:
+        # Secure HTTPS Cloud Relay is active, prevent zombie cloudflared processes
+        CloudflareTunnelManager.kill_stale_tunnels()
 
     return STATE
