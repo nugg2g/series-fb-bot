@@ -1,5 +1,6 @@
 import os
 import json
+import time
 import shutil
 from datetime import datetime
 from typing import List, Dict, Any, Optional, Tuple
@@ -134,6 +135,53 @@ class QueueManager:
         videos.sort()
         return videos
 
+    @staticmethod
+    def get_lock_file_path(video_path: str) -> str:
+        base_dir = os.path.dirname(os.path.abspath(video_path))
+        base_name = os.path.basename(video_path)
+        return os.path.join(base_dir, f".{base_name}.upload_lock")
+
+    def is_video_locked(self, video_path: str) -> bool:
+        """Checks if a video file is currently locked/being uploaded by another process."""
+        lock_path = self.get_lock_file_path(video_path)
+        if os.path.exists(lock_path):
+            try:
+                # If lock file is older than 2 hours, it's stale (crashed worker) -> clean it up
+                mtime = os.path.getmtime(lock_path)
+                if time.time() - mtime > 7200:
+                    try:
+                        os.remove(lock_path)
+                    except Exception:
+                        pass
+                    return False
+                return True
+            except Exception:
+                return False
+        return False
+
+    def acquire_video_lock(self, video_path: str) -> bool:
+        """Atomically acquires an exclusive upload lock on the given video file."""
+        lock_path = self.get_lock_file_path(video_path)
+        if self.is_video_locked(video_path):
+            return False
+        try:
+            with open(lock_path, "x", encoding="utf-8") as f:
+                json.dump({"pid": os.getpid(), "locked_at": datetime.now().isoformat()}, f)
+            return True
+        except FileExistsError:
+            return False
+        except Exception:
+            return False
+
+    def release_video_lock(self, video_path: str):
+        """Releases the upload lock for the video file."""
+        lock_path = self.get_lock_file_path(video_path)
+        try:
+            if os.path.exists(lock_path):
+                os.remove(lock_path)
+        except Exception:
+            pass
+
     def is_already_uploaded(self, video_path: str, completed_folder: Optional[str] = None) -> Tuple[bool, str]:
         """
         High-speed multi-layer anti-duplicate check:
@@ -149,6 +197,10 @@ class QueueManager:
         basename = os.path.basename(video_path)
         files_map = self.history.get("files", {})
         hashes_map = self.history.get("hashes", {})
+
+        # 0. Check in-progress lock (prevents duplicate simultaneous uploads across processes)
+        if self.is_video_locked(video_path):
+            return True, "ກຳລັງຖືກອັບໂຫຼດຢູ່ໂດຍອີກ Worker ໜຶ່ງ (In Progress Lock)"
 
         # 1. Check filename in history (Instant O(1) in-memory lookup)
         if basename in files_map:
@@ -370,6 +422,7 @@ class QueueManager:
                     print(f"[QueueManager] Moved companion caption file {t_base} to: {dest_dir}")
             except Exception as e:
                 print(f"[QueueManager] Could not move {basename} to completed: {e}")
+        self.release_video_lock(video_path)
 
     def mark_failed(self, video_path: str, error_message: str, custom_failed_folder: Optional[str] = None):
         """Marks video as failed in history and optionally moves to failed folder"""
@@ -406,6 +459,7 @@ class QueueManager:
                     shutil.move(txt_comp, t_dest)
             except Exception:
                 pass
+        self.release_video_lock(video_path)
 
     def get_stats(self, target_folder: Optional[str] = None, completed_folder: Optional[str] = None, fast: bool = True) -> Dict[str, int]:
         all_videos = self.scan_videos(target_folder=target_folder)

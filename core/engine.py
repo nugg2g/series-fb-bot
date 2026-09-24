@@ -208,8 +208,17 @@ class ReelUploadEngine:
                     if not pending_videos:
                         continue
 
-                    # Found a video for this group - process it
-                    video_path = pending_videos[0]
+                    # Found a video for this group - acquire exclusive lock to prevent duplicate uploads
+                    video_path = None
+                    for cand_v in pending_videos:
+                        if self.queue_mgr.acquire_video_lock(cand_v):
+                            video_path = cand_v
+                            break
+
+                    if not video_path:
+                        self.log(f"ℹ️ ວິດີໂອທັງໝົດໃນຄິວຂອງກຸ່ມ '{g_name}' ກຳລັງຖືກອັບໂຫຼດໂດຍອີກ Worker ໜຶ່ງ, ຂ້າມໄປກຸ່ມຖັດໄປ...")
+                        continue
+
                     filename = os.path.basename(video_path)
 
                     while self._is_paused:
@@ -224,6 +233,7 @@ class ReelUploadEngine:
 
                     if not needs_upload:
                         self.log(f"⏭️ ຂ້າມ '{filename}': ລົງຄົບທຸກ {len(g_pages)} Pages ແລ້ວ")
+                        self.queue_mgr.release_video_lock(video_path)
                         continue
 
                     if pages_done:
@@ -474,18 +484,17 @@ class ReelUploadEngine:
                     if self._is_running:
                         WEB_STATE.update(status="waiting_delay")
                         if self.config.get("randomize_delay", True):
-                            min_d = float(self.config.get("delay_min_minutes", 15))
-                            max_d = float(self.config.get("delay_max_minutes", 35))
+                            min_d = float(self.config.get("delay_min_minutes", 60))
+                            max_d = float(self.config.get("delay_max_minutes", 120))
                             if min_d > max_d:
                                 min_d, max_d = max_d, min_d
                             delay_mins = round(random.uniform(min_d, max_d), 1)
                             self.log(f"⏳ ສຸ່ມເວລາພັກລໍຖ້າ (Random Delay): {delay_mins} ນາທີ ກ່ອນເລີ່ມຄລິບຖັດໄປ (ສຸ່ມລະຫວ່າງ {int(min_d)}-{int(max_d)} ນາທີ ເພື່ອຄວາມເປັນທຳມະຊາດ)...")
                         else:
-                            delay_mins = float(self.config.get("delay_between_posts_minutes", 20))
+                            delay_mins = float(self.config.get("delay_between_posts_minutes", 60))
                             self.log(f"⏳ ພັກລໍຖ້າ (Delay) {delay_mins} ນາທີ ເພື່ອປ້ອງກັນ Facebook Spam...")
 
                         total_seconds = int(delay_mins * 60)
-                        interrupted_by_priority = False
                         for s in range(total_seconds):
                             if not self._is_running:
                                 break
@@ -494,21 +503,15 @@ class ReelUploadEngine:
                                 if not self._is_running:
                                     break
 
-                            # ກວດສອບກຸ່ມ Priority (ນ້ອງເຂົ້າຫອມ) ທຸກໆ 60 ວິນາທີ (1 ນາທີ - ບໍ່ກວດດຸເກີນໄປ ປະຢັດ Resource)
-                            if s > 0 and s % 60 == 0:
-                                current_groups = self._get_execution_groups()
-                                for pg in current_groups:
-                                    if pg.get("priority") == "immediate" or pg.get("group_id") == "group_dedicated_1page":
-                                        p_folder = pg.get("video_folder")
-                                        p_comp = pg.get("completed_folder")
-                                        p_pages = pg.get("pages", [])
-                                        p_pending = self.queue_mgr.get_pending_videos(target_folder=p_folder, completed_folder=p_comp, target_pages=p_pages)
-                                        if p_pending:
-                                            self.log(f"\n⚡ [Instant Priority] ກວດພົບ content ໃໝ່ຂອງເພຈ '{pg.get('group_name')}' ({len(p_pending)} ໄຟລ໌)! ຕັດເວລາພັກລໍຖ້າ ແລະ ເລີ່ມອັບໂຫຼດທັນທີ...")
-                                            interrupted_by_priority = True
-                                            break
-                                if interrupted_by_priority:
-                                    break
+                            rem = total_seconds - s
+                            if s % 5 == 0 or rem <= 5:
+                                rem_mins = rem // 60
+                                rem_secs = rem % 60
+                                WEB_STATE.update(
+                                    status="waiting_delay",
+                                    progress_text=f"ພັກລໍຖ້າໂພສຖັດໄປ: {rem_mins:02d}:{rem_secs:02d} ນາທີ",
+                                    delay_remaining_seconds=rem
+                                )
 
                             time.sleep(1)
 
@@ -630,6 +633,12 @@ class ReelUploadEngine:
                     self.log(f"✅ ບັນທຶກປະຫວັດ: Page '{p_name}' ໄດ້ໂພສ CTA ປະຈຳມື້ແລ້ວ.")
                 else:
                     overall_ok = False
+
+                # Safe pacing between different pages for CTA posts
+                if self._is_running and p_info != pages_to_post[-1]:
+                    cta_delay = random.randint(60, 120)
+                    self.log(f"⏳ ພັກລໍຖ້າ {cta_delay} ວິນາທີ ກ່ອນດຳເນີນການ CTA ເພຈຖັດໄປ...")
+                    time.sleep(cta_delay)
         finally:
             if need_close and not self._is_running:
                 try:

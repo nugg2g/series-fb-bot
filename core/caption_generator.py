@@ -367,6 +367,7 @@ class CaptionGenerator:
             r'^\s*【[^】]*】',
             r'^\s*\[[^\]]*\]',
             r'^\s*\([^\)]*\)',
+            r'^\s*(?:รีวิวภาพยนตร์สนุกเต็มเรื่อง|รีวิวหนังสนุกเต็มเรื่อง|รีวิวหนัง|รีวิวภาพยนตร์|สปอยหนัง|สปอยล์หนัง|สปอยซีรีย์)[\s｜|–—\u2013\u2014-]*',
             r'^\s*(?:เต็มเรื่องในตอนเดียว|เต็มเ?เรื่อง|เต็​มเรื่อง|เต็มเรือง|ตอนเต็ม|ตอนเดียวจบ|คลิปเต็ม|พากย์ไทยเต็มเรื่อง)',
             r'^\s*FULL[\s–—\u2013\u2014-]*',
             r'^\s*(?:มินิซีรี่ย์จีน|มินิซีรี่ย์|ซีรี่ย์จีน|ซีรีส์จีน|หนังสั้นจีน|หนังสั้น|ละครสั้น)',
@@ -909,7 +910,7 @@ class CaptionGenerator:
         4. Curated Pool fallback.
         """
         raw_name = os.path.splitext(os.path.basename(video_path))[0]
-        actual_title_mode = title_mode or self.config.get("title_mode", "auto_ai_drama")
+        actual_title_mode = title_mode or self.config.get("title_mode", "filename_clean")
         cover_path = None
         tpl = custom_template or self.template
 

@@ -2705,6 +2705,10 @@ class MainWindow(QMainWindow):
 
 
 def main():
+    from core.single_instance import ensure_single_instance
+    if not ensure_single_instance("ThaiMovieDrama_ReelsBot_PG2"):
+        sys.exit(0)
+
     import ctypes
     try:
         ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID("ThaiMovieDrama.ReelsBot.Instance2")
