@@ -186,6 +186,7 @@ class MonitorState:
             for k, v in kwargs.items():
                 if hasattr(self, k):
                     setattr(self, k, v)
+        self._dump_to_disk()
 
     def add_log(self, text: str):
         with self.lock:
@@ -194,6 +195,26 @@ class MonitorState:
             self.recent_logs.append(entry)
             if len(self.recent_logs) > 60:
                 self.recent_logs.pop(0)
+        self._dump_to_disk()
+
+    def _dump_to_disk(self):
+        try:
+            state_file = os.path.abspath("./bot_live_state.json")
+            data = {
+                "status": self.status,
+                "progress_pct": self.progress_pct,
+                "progress_text": self.progress_text,
+                "current_video": dict(self.current_video),
+                "server_time": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                "updated_at": time.time(),
+                "pid": os.getpid()
+            }
+            tmp = state_file + ".tmp"
+            with open(tmp, "w", encoding="utf-8") as f:
+                json.dump(data, f, ensure_ascii=False)
+            os.replace(tmp, state_file)
+        except Exception:
+            pass
 
     def get_snapshot(self) -> Dict[str, Any]:
         with self.lock:

@@ -14,6 +14,7 @@ if sys.platform == "win32":
 from core.engine import ReelUploadEngine
 from core.browser_manager import BrowserManager
 from core.queue_manager import QueueManager
+from core.web_monitor import start_web_monitor
 
 CONFIG_PATH = os.path.abspath("./config.json")
 
@@ -81,6 +82,21 @@ def main():
 
     if args.start:
         engine = ReelUploadEngine(config, log_cb=print)
+
+        # Start Web Monitor and Cloud Relay Sync (allows remote control & live dashboard on Render)
+        if config.get("web_monitor", {}).get("enabled", True):
+            def handle_remote_action(action: str, payload: dict = None):
+                if action == "pause":
+                    engine.pause()
+                elif action == "resume":
+                    engine.pause()
+                elif action == "stop":
+                    engine.stop()
+            try:
+                start_web_monitor(config, action_callback=handle_remote_action)
+            except Exception as e:
+                print(f"⚠️ [WebMonitor] Error starting monitor: {e}")
+
         try:
             engine._run_loop()
         except KeyboardInterrupt:

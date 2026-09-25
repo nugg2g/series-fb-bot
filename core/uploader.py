@@ -224,7 +224,7 @@ class ReelsUploader:
 
             # Wait for upload 100% and button to be fully enabled before clicking publish
             self.emit_progress(96, "ກຳລັງກົດປຸ່ມ Publish / Schedule...")
-            self.wait_and_click_publish(is_schedule=is_schedule, max_wait_seconds=600)
+            self.wait_and_click_publish(is_schedule=is_schedule, max_wait_seconds=dynamic_timeout)
 
             # 8. Wait for completion confirmation
             self.emit_progress(98, "ລໍຖ້າການຢືນຢັນການໂພສຈາກ Facebook...")
@@ -876,7 +876,7 @@ class ReelsUploader:
 
             time.sleep(2)
 
-        raise Exception(f"หมดเวลารอ (Timeout 600s): ปุ่ม '{btn_name}' ยังคงถูกปิดใช้งาน (Disabled)")
+        raise Exception(f"หมดเวลารอ (Timeout {max_wait_seconds}s): ปุ่ม '{btn_name}' ยังคงถูกปิดใช้งาน (Disabled)")
 
     def wait_for_publish_complete(self, timeout_seconds: int = 120) -> bool:
         """
