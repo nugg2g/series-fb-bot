@@ -179,8 +179,15 @@ class ReelsUploader:
             time.sleep(2)
 
             # 5. Wait for video upload to reach completion (100%)
-            self.emit_progress(30, "ກຳລັງອັບໂຫຼດວິດີໂອຂຶ້ນ Meta Business Suite...")
-            upload_ok = self.wait_for_video_ready(max_wait_seconds=300)
+            # Calculate dynamic timeout: min 600s (10 min), +1s per MB for large files (>300MB)
+            try:
+                v_size_mb = os.path.getsize(video_path) / (1024 * 1024)
+                dynamic_timeout = max(600, int(v_size_mb * 1.5))
+            except Exception:
+                dynamic_timeout = 600
+
+            self.emit_progress(30, f"ກຳລັງອັບໂຫຼດວິດີໂອຂຶ້ນ Meta Business Suite (ຂະໜາດ {v_size_mb:.1f} MB, timeout {dynamic_timeout}s)...")
+            upload_ok = self.wait_for_video_ready(max_wait_seconds=dynamic_timeout)
             if not upload_ok:
                 self.log("⚠️ ການອັບໂຫຼດອາດໃຊ້ເວລາດົນ ແຕ່ຈະລອງກົດຖັດໄປ...")
 

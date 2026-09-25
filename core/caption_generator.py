@@ -227,7 +227,13 @@ class CaptionGenerator:
         (r'จุดเชื่อมต$', 'จุดเชื่อมต่อ'),
         (r'บ้านเดีย$', 'บ้านเดียวกัน'),
         (r'เริ่มโต้ก$', 'เริ่มโต้กลับ'),
-        (r'ถึงได้รู้ว่าตัว$', 'ถึงได้รู้ว่าตัวเอง')
+        (r'ถึงได้รู้ว่าตัว$', 'ถึงได้รู้ว่าตัวเอง'),
+        (r'ปล่อยเก$', 'ปล่อยเกาะ'),
+        (r'โดนปล่อยเก$', 'โดนปล่อยเกาะ'),
+        (r'พามาปล่อยเก$', 'พามาปล่อยเกาะ'),
+        (r'ถูกทิ้$', 'ถูกทิ้ง'),
+        (r'ทรยศหักหลั$', 'ทรยศหักหลัง'),
+        (r'หักหลั$', 'หักหลัง')
     ]
 
     # Scraped junk patterns commonly found in downloaded Facebook/TikTok videos
@@ -561,6 +567,11 @@ class CaptionGenerator:
             if re.search(pattern, t):
                 t = re.sub(pattern, repl, t)
                 break
+        else:
+            # Fallback: If not matched in static dictionary, ask Gemini AI to complete the truncated word
+            ai_completed = self.complete_truncated_with_ai(t)
+            if ai_completed:
+                t = ai_completed
 
         # Remove existing episode tags if any
         t = re.sub(r'(?:\s*ตอนที่\s*\d+|\s*ตอน\s*\d+|\s*ep\s*\d+|\s*part\s*\d+)+$', '', t, flags=re.IGNORECASE).strip()
@@ -568,6 +579,68 @@ class CaptionGenerator:
         if self.config.get("add_episode_number", False):
             return f"{t} ตอนที่ {index}"
         return t
+
+    def complete_truncated_with_ai(self, text: str) -> Optional[str]:
+        """
+        Uses Gemini AI to complete the last truncated/cut-off Thai word or phrase in a title.
+        Example: 'สาวน้อยชาวประมงโดนอาแท้ๆพามาปล่อยเก' -> 'สาวน้อยชาวประมงโดนอาแท้ๆพามาปล่อยเกาะ'
+        """
+        if not text or len(text.strip()) < 4:
+            return None
+
+        # Check if text looks cut off (e.g. ends with Thai vowel, single consonant, or incomplete phrase)
+        keys, models = self.get_api_keys()
+        if not keys:
+            return None
+
+        try:
+            from google import genai
+            from google.genai import types
+        except Exception:
+            return None
+
+        prompt = (
+            f"ข้อความชื่อเรื่องละครสั้น/ซีรีส์ต่อไปนี้ถูกตัดคำขาดที่ท้ายประโยคเนื่องจากความยาวชื่อไฟล์ถูกตัด:\n"
+            f"\"{text.strip()}\"\n\n"
+            f"คำสั่ง:\n"
+            f"1. ให้เติมคำที่ขาดหายไปต่อท้ายให้ประโยคสมบูรณ์และถูกต้องตามหลักภาษาไทยและบริบทของเรื่อง\n"
+            f"2. ห้ามเปลี่ยนคำเดิมในประโยค ให้คงข้อความเดิมไว้ทั้งหมดและเติมเฉพาะคำ/พยางค์สุดท้ายที่ถูกตัดให้ครบถ้วน\n"
+            f"3. ตอบกลับเฉพาะข้อความชื่อเรื่องที่สมบูรณ์แล้วเพียงบรรทัดเดียวเท่านั้น ห้ามมีคำอธิบาย เครื่องหมายคำพูด หรือข้อความอื่นใดทั้งสิ้น"
+        )
+
+        http_opts = types.HttpOptions(
+            timeout=10000,
+            retry_options=types.HttpRetryOptions(attempts=1)
+        )
+
+        for key in keys:
+            try:
+                client = genai.Client(api_key=key, http_options=http_opts)
+            except Exception:
+                continue
+
+            for m in models:
+                try:
+                    resp = client.models.generate_content(
+                        model=m,
+                        contents=prompt
+                    )
+                    if resp and resp.text:
+                        completed = resp.text.strip().strip('"\'')
+                        # Sanity check: completed text must start with the original text (or original without last char)
+                        if completed and len(completed) >= len(text) and completed != text:
+                            # Verify it starts with at least 80% prefix of text
+                            prefix = text[:max(4, len(text) - 4)]
+                            if prefix in completed:
+                                print(f"[CaptionGenerator] 🤖 AI Title Completion: '{text}' -> '{completed}'")
+                                return completed
+                except Exception as e:
+                    err_s = str(e)
+                    if "429" in err_s or "RESOURCE_EXHAUSTED" in err_s:
+                        break
+                    continue
+
+        return None
 
     def get_api_keys(self) -> Tuple[List[str], List[str]]:
         """Returns list of API keys and ordered list of models for fallback"""
@@ -964,6 +1037,9 @@ class CaptionGenerator:
         if actual_title_mode == "filename_clean":
             clean_title = self.clean_filename(video_path)
             if clean_title and len(clean_title) >= 3:
+                # Also run through truncation completion (regex + Gemini AI)
+                clean_title = self.complete_truncated_story_title(clean_title, index=index)
+
                 if self.config.get("add_episode_number", False):
                     if not re.search(r'(?i)\b(ep|episode|part|ตอน|ຕອນ)\b', clean_title):
                         clean_title = f"{clean_title} ตอนที่ {index}"
