@@ -93,7 +93,7 @@ class ReelsUploader:
         except Exception:
             pass
 
-    def upload_reel(self, video_path: str, caption: str, schedule_time: Optional[datetime] = None, target_page: Optional[Dict[str, str]] = None) -> bool:
+    def upload_reel(self, video_path: str, caption: str, schedule_time: Optional[datetime] = None, target_page: Optional[Dict[str, str]] = None, title: Optional[str] = None, cover_image_path: Optional[str] = None) -> bool:
         """
         Uploads a single video to Meta Business Suite as a Reel.
         
@@ -101,6 +101,8 @@ class ReelsUploader:
         :param caption: The full caption text including hashtags
         :param schedule_time: Optional datetime to schedule the post
         :param target_page: Optional specific target page dict {"page_name": ..., "page_id": ...}
+        :param title: Clean drama title for high-CTR cover generation
+        :param cover_image_path: Optional pre-generated 9:16 cover image
         :return: True if successful, False otherwise
         """
         if not os.path.exists(video_path):
@@ -194,6 +196,28 @@ class ReelsUploader:
             # Check and enable AI-generated content label in Step 1 if requested
             if self.config.get("mark_as_ai_content", True):
                 self.enable_ai_content_label()
+
+            # 5.5 Set Custom 9:16 High-CTR Cover if enabled
+            if self.config.get("auto_cover_image", True):
+                try:
+                    cover_target = cover_image_path
+                    if not cover_target or not os.path.exists(cover_target):
+                        from core.thumbnail_designer import create_high_ctr_thumbnail
+                        drama_title = title or os.path.splitext(filename)[0]
+                        try:
+                            from core.caption_generator import CaptionGenerator
+                            drama_title = CaptionGenerator.clean_title(drama_title)
+                        except Exception:
+                            pass
+                        cover_target = create_high_ctr_thumbnail(
+                            title=drama_title,
+                            platform="facebook",
+                            video_path=video_path
+                        )
+                    if cover_target and os.path.exists(cover_target):
+                        self.set_reel_cover(cover_target)
+                except Exception as ex_cover:
+                    self.log(f"⚠️ ຮູບໜ້າປົກອັດຕະໂນມັດ: {ex_cover}")
 
             # 6. Click Next through Steps
             # Step 1 -> Step 2 (Edit)
@@ -624,7 +648,61 @@ class ReelsUploader:
 
             time.sleep(2)
 
-        self.log("⚠️ หมดเวลารอวิดีโอ (300 วินาที) จะลองดำเนินการต่อ...")
+    def set_reel_cover(self, cover_image_path: str) -> bool:
+        """
+        Uploads custom 9:16 high-CTR cover image in Meta Business Suite Reels Composer.
+        Safe and non-blocking: if selector is not found, logs and continues without disrupting upload.
+        """
+        if not cover_image_path or not os.path.exists(cover_image_path):
+            return False
+        try:
+            self.log(f"🎨 ກຳລັງເລືອກ/ອັບໂຫຼດຮູບໜ້າປົກ Cover 9:16: {os.path.basename(cover_image_path)}...")
+            
+            # Check for Cover Image tab or button
+            cover_triggers = [
+                'text=รูปภาพหน้าปก', 'text=ภาพหน้าปก', 'text=ภาพขนาดย่อ',
+                'text=Cover image', 'text=Cover Image', 'text=Cover',
+                'text=เลือกภาพหน้าปก', 'text=อัปโหลดรูปภาพ', 'text=Upload image'
+            ]
+            for trig in cover_triggers:
+                loc = self.page.locator(trig).first
+                if loc.is_visible(timeout=1500):
+                    try:
+                        loc.click()
+                        time.sleep(1)
+                    except Exception:
+                        pass
+                    break
+
+            # Look for "อัปโหลดรูปภาพ" / "Upload image" button
+            upload_btn = self.page.locator('text=อัปโหลดรูปภาพ').or_(
+                self.page.locator('text=Upload image')
+            ).or_(
+                self.page.locator('text=Upload Image')
+            ).or_(
+                self.page.locator('text=เลือกภาพขนาดย่อ')
+            ).first
+
+            if upload_btn.is_visible(timeout=2500):
+                try:
+                    with self.page.expect_file_chooser(timeout=5000) as fc_info:
+                        upload_btn.click()
+                    fc_info.value.set_files(cover_image_path)
+                    self.log("✅ ອັບໂຫຼດຮູບໜ້າປົກ Reel Cover 9:16 ສຳເລັດ!")
+                    time.sleep(2)
+                    return True
+                except Exception:
+                    pass
+
+            # Alternative: Search for image file input directly
+            img_inputs = self.page.locator('input[type="file"][accept*="image"]')
+            if img_inputs.count() > 0:
+                img_inputs.first.set_input_files(cover_image_path)
+                self.log("✅ ສົ່ງຮູບໜ້າປົກເຂົ້າ input[type=file] ສຳເລັດ!")
+                time.sleep(2)
+                return True
+        except Exception as e:
+            self.log(f"ℹ️ ໝາຍເຫດເລື່ອງຮູບໜ້າປົກ: {e}")
         return False
 
     def get_next_button(self):

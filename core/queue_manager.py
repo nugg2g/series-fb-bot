@@ -614,3 +614,67 @@ class QueueManager:
         self._save_history()
         self._hash_cache.clear()
         return True
+
+    def retry_failed_videos(self) -> int:
+        """
+        Resets all failed videos back to 'pending' and removes duplicate locks.
+        Also moves any failed mp4 files from failed folders back to video folders.
+        """
+        files_map = self.history.get("files", {})
+        hashes_map = self.history.get("hashes", {})
+        count = 0
+
+        # Move files from failed folders back to video folder
+        for f_fol, v_fol in [(os.path.join(self.failed_folder, "shared"), self.video_folder),
+                             (self.failed_folder, self.video_folder)]:
+            if os.path.exists(f_fol):
+                for fname in os.listdir(f_fol):
+                    if fname.lower().endswith(self.VIDEO_EXTS):
+                        src = os.path.join(f_fol, fname)
+                        dest = os.path.join(v_fol, fname)
+                        try:
+                            if not os.path.exists(dest):
+                                shutil.move(src, dest)
+                            else:
+                                os.remove(src)
+                        except Exception as e:
+                            print(f"[QueueManager] Move failed error: {e}")
+
+        # Reset failed files in history
+        for fname, rec in list(files_map.items()):
+            if rec.get("status") == "failed":
+                # Only reset videos (skip static .png images from Reels queue)
+                if fname.lower().endswith(self.VIDEO_EXTS):
+                    rec["status"] = "pending"
+                    rec.pop("error", None)
+                    rec["retried_at"] = datetime.now().isoformat()
+                    f_hash = rec.get("file_hash")
+                    if f_hash and f_hash in hashes_map:
+                        del hashes_map[f_hash]
+                    count += 1
+                else:
+                    # Clean out image files from Reels history
+                    del files_map[fname]
+
+        self._save_history()
+        self._hash_cache.clear()
+        print(f"[QueueManager] Reset {count} failed videos back to pending.")
+        return count
+
+    def clear_failed_history(self) -> int:
+        """Removes all failed records from history.json"""
+        files_map = self.history.get("files", {})
+        hashes_map = self.history.get("hashes", {})
+        removed = 0
+        for fname, rec in list(files_map.items()):
+            if rec.get("status") == "failed":
+                f_hash = rec.get("file_hash")
+                if f_hash and f_hash in hashes_map:
+                    del hashes_map[f_hash]
+                del files_map[fname]
+                removed += 1
+
+        self._save_history()
+        self._hash_cache.clear()
+        print(f"[QueueManager] Cleared {removed} failed records from history.")
+        return removed

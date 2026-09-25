@@ -21,6 +21,7 @@ import urllib.parse
 import hashlib
 import hmac
 import re
+import atexit
 from datetime import datetime
 from typing import Dict, Any, Optional, Callable, List, Tuple
 import requests
@@ -194,8 +195,15 @@ class MonitorState:
 
     def add_log(self, text: str):
         with self.lock:
-            ts = datetime.now().strftime("%H:%M:%S")
-            entry = f"[{ts}] {text}"
+            # Strip any preexisting timestamp prefixes like [09:41:03] or double timestamps
+            clean_text = re.sub(r'^(?:\[\d{2}:\d{2}:\d{2}\]\s*)+', '', text.strip())
+            try:
+                from datetime import timezone, timedelta
+                tz_ict = timezone(timedelta(hours=7))
+                ts = datetime.now(timezone.utc).astimezone(tz_ict).strftime("%H:%M:%S")
+            except Exception:
+                ts = datetime.now().strftime("%H:%M:%S")
+            entry = f"[{ts}] {clean_text}"
             self.recent_logs.append(entry)
             if len(self.recent_logs) > 60:
                 self.recent_logs.pop(0)
@@ -236,9 +244,9 @@ class MonitorState:
                         cfg = json.load(f)
                         page_groups = cfg.get("page_groups", [])
                         config_summary = {
-                            "delay_min_minutes": cfg.get("delay_min_minutes", 60),
-                            "delay_max_minutes": cfg.get("delay_max_minutes", 120),
-                            "delay_between_posts_minutes": cfg.get("delay_between_posts_minutes", 60),
+                            "delay_min_minutes": cfg.get("delay_min_minutes", 180),
+                            "delay_max_minutes": cfg.get("delay_max_minutes", 240),
+                            "delay_between_posts_minutes": cfg.get("delay_between_posts_minutes", 210),
                             "randomize_delay": cfg.get("randomize_delay", True),
                             "title_prefix": cfg.get("title_prefix", "[เต็มเรื่อง] "),
                             "caption_template": cfg.get("caption_template", ""),
@@ -686,6 +694,58 @@ MOBILE_UI_HTML = """<!DOCTYPE html>
       cursor: pointer;
       color: white;
     }
+    .btn-sm.btn-warning {
+      background: linear-gradient(135deg, #d97706, #b45309);
+    }
+    .btn-sm.btn-start {
+      background: linear-gradient(135deg, #2563eb, #1d4ed8);
+    }
+    .btn-sm.btn-danger {
+      background: linear-gradient(135deg, #dc2626, #b91c1c);
+    }
+    .btn-sm.btn-success {
+      background: linear-gradient(135deg, #10b981, #059669);
+    }
+    .btn-sm:active {
+      transform: scale(0.95);
+      opacity: 0.85;
+    }
+
+    /* Settings Sections */
+    .settings-section {
+      background: #0d101c;
+      border: 1px solid #1e263d;
+      border-radius: 12px;
+      padding: 12px;
+      margin-bottom: 12px;
+    }
+    .section-title {
+      font-size: 12px;
+      font-weight: 800;
+      color: #38bdf8;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      margin-bottom: 10px;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .form-group-switch {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 8px 0;
+      border-bottom: 1px solid #192033;
+      margin-bottom: 8px;
+    }
+    .switch-lbl { font-size: 13px; font-weight: 700; color: #fff; }
+    .switch-sub { font-size: 11px; color: var(--text-muted); margin-top: 2px; }
+    .toggle-switch {
+      width: 44px;
+      height: 24px;
+      accent-color: #38bdf8;
+      cursor: pointer;
+    }
 
     /* Settings Sections */
     .settings-section {
@@ -821,8 +881,7 @@ MOBILE_UI_HTML = """<!DOCTYPE html>
       </div>
 
       <div style="margin-bottom: 12px;">
-        <input type="password" id="pinDisplay" maxlength="8" readonly
-               style="width: 150px; text-align: center; font-size: 24px; letter-spacing: 6px; background: #07080d; border: 2px solid var(--accent); border-radius: 10px; color: #fff; padding: 6px;">
+        <input type="password" id="pinDisplay" maxlength="8" inputmode="numeric" pattern="[0-9]*" autocomplete="off" placeholder="••••" oninput="currPinInput = this.value.replace(/[^0-9]/g, ''); this.value = currPinInput; if(currPinInput.length===4) submitPinLogin();" onkeydown="if(event.key === 'Enter') submitPinLogin();" style="width: 160px; text-align: center; font-size: 26px; letter-spacing: 8px; background: #07080d; border: 2px solid var(--accent); border-radius: 10px; color: #fff; padding: 8px;">
       </div>
 
       <div id="pinErrorMsg" style="color: var(--danger); font-size: 11px; font-weight: bold; min-height: 18px; margin-bottom: 10px;"></div>
@@ -854,6 +913,9 @@ MOBILE_UI_HTML = """<!DOCTYPE html>
       <span>⚡ Reels Bot</span> Manager
     </div>
     <div class="top-actions">
+      <a href="http://10.161.4.10:9999" target="_blank" class="btn-sm btn-secondary" style="text-decoration:none; display:inline-flex; align-items:center; gap:5px; font-weight:700; color:#38bdf8; border:1px solid rgba(56,189,248,0.35); background:rgba(56,189,248,0.08); padding:5px 9px; border-radius:8px;" title="ເປີດ PG-Monitor ລະບົບຄວບຄຸມຫຼັກ">
+        🖥️ PG-Monitor
+      </a>
       <div class="conn-badge conn-online" id="connBadge">
         <div class="pulse-dot"></div>
         <span id="connStatusText">🟢 Bot ອອນລາຍ</span>
@@ -935,6 +997,9 @@ MOBILE_UI_HTML = """<!DOCTYPE html>
           <button class="btn btn-stop" id="btnStop" onclick="triggerAction('stop')">
             ⏹️ ຢຸດ (Stop)
           </button>
+          <button class="btn btn-skip" id="btnSkipGrid" onclick="skipDelayAction()" style="grid-column: span 2;">
+            ⚡ ຂ້າມເວລາພັກ / ອັບໂຫຼດຄລິບຖັດໄປທັນທີ (Upload Now)
+          </button>
           <button class="btn btn-cta" onclick="confirmCTA()">
             📸 ສັ່ງ AI ສ້າງຮູບ & ໂພສ CTA ດຽວນີ້
           </button>
@@ -969,9 +1034,14 @@ MOBILE_UI_HTML = """<!DOCTYPE html>
     <!-- ================== TAB 2: PAGES MANAGER ================== -->
     <div class="tab-content" id="tabPages">
       <div class="card">
-        <div class="card-head">
-          <div class="card-title">🌐 ຈັດການ 4 Pages Facebook</div>
-          <button class="btn-sm btn-secondary" onclick="fetchState()">🔄 ຣີເຟຣຊ</button>
+        <div class="card-head" style="flex-wrap: wrap; gap: 8px;">
+          <div class="card-title" id="pagesCardTitle">🌐 ຈັດການ Pages Facebook</div>
+          <div style="display: flex; gap: 6px; flex-wrap: wrap;">
+            <button class="btn-sm btn-success" onclick="openAddPageModal()" title="ເພີ່ມ Page Facebook ໃໝ່">➕ ເພີ່ມ Page</button>
+            <button class="btn-sm btn-warning" onclick="retryFailedVideos()" title="ລອງອັບໂຫຼດວິດີໂອທີ່ຜິດພາດໃໝ່">🔄 ລອງໃໝ່ທັງໝົດ</button>
+            <button class="btn-sm btn-secondary" onclick="clearFailedHistory()" title="ລ້າງລາຍການທີ່ຜິດພາດອອກ">🧹 ລ້າງລາຍການຜິດພາດ</button>
+            <button class="btn-sm btn-secondary" onclick="fetchState()">🔄 ຣີເຟຣຊ</button>
+          </div>
         </div>
         <p style="font-size: 11px; color: var(--text-muted); margin-bottom: 12px;">
           ເລືອກ Page ທີ່ຕ້ອງການໃຫ້ Bot ອັບໂຫຼດ ຫຼື ແກ້ໄຂ Page ID ໄດ້ໂດຍກົງຈາກໂທລະສັບ:
@@ -986,9 +1056,11 @@ MOBILE_UI_HTML = """<!DOCTYPE html>
     <!-- ================== TAB 3: QUEUE LIST ================== -->
     <div class="tab-content" id="tabQueue">
       <div class="card">
-        <div class="card-head">
+        <div class="card-head" style="flex-wrap: wrap; gap: 8px;">
           <div class="card-title">📋 ລາຍການວິດີໂອໃນຄິວ</div>
-          <button class="btn-sm btn-secondary" onclick="fetchState()">🔄 ຣີເຟຣຊ</button>
+          <div style="display: flex; gap: 6px;">
+            <button class="btn-sm btn-secondary" onclick="fetchState()">🔄 ຣີເຟຣຊ</button>
+          </div>
         </div>
         <div id="queueListContainer" style="display: flex; flex-direction: column; gap: 6px; max-height: 480px; overflow-y: auto;">
           <div style="text-align: center; color: var(--text-muted); padding: 20px;">ກຳລັງໂຫຼດລາຍການຄິວ...</div>
@@ -1159,7 +1231,7 @@ MOBILE_UI_HTML = """<!DOCTYPE html>
     </div>
     <div class="nav-item" onclick="switchTab('tabPages', this)">
       <svg viewBox="0 0 24 24"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 17.93c-3.95-.49-7-3.85-7-7.93 0-.62.08-1.21.21-1.79L9 15v1c0 1.1.9 2 2 2v1.93zm6.9-2.54c-.26-.81-1-1.39-1.9-1.39h-1v-3c0-.55-.45-1-1-1H8v-2h2c.55 0 1-.45 1-1V7h2c1.1 0 2-.9 2-2v-.41c2.93 1.19 5 4.06 5 7.41 0 2.08-.8 3.97-2.1 5.39z"/></svg>
-      <span>4 ເພຈ</span>
+      <span id="navPagesLbl">ເພຈ FB</span>
     </div>
     <div class="nav-item" onclick="switchTab('tabQueue', this)">
       <svg viewBox="0 0 24 24"><path d="M4 6H2v14c0 1.1.9 2 2 2h14v-2H4V6zm16-4H8c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm0 14H8V4h12v12z"/></svg>
@@ -1175,20 +1247,49 @@ MOBILE_UI_HTML = """<!DOCTYPE html>
     </div>
   </div>
 
-  <!-- Modal Edit Page ID -->
+  <!-- Modal Edit Page -->
   <div class="modal-overlay" id="editModal">
     <div class="modal-box">
-      <div style="font-size: 14px; font-weight: 800; margin-bottom: 8px;">✏️ ແກ້ໄຂ Page ID</div>
-      <div style="font-size: 12px; color: var(--text-muted); margin-bottom: 12px;" id="modalPageName">-</div>
+      <div style="font-size: 15px; font-weight: 800; margin-bottom: 8px;">✏️ ແກ້ໄຂຂໍ້ມູນ Page Facebook</div>
       <input type="hidden" id="modalGroupId">
       <input type="hidden" id="modalPageIndex">
       <div class="form-group">
-        <label class="form-lbl">Facebook Page ID ໃໝ່ (ຕົວເລກເທົ່ານັ້ນ):</label>
-        <input type="number" class="input-field" id="modalPageIdInput" placeholder="ຕົວຢ່າງ: 1332661329928072">
+        <label class="form-lbl">ຊື່ Page (Page Name):</label>
+        <input type="text" class="input-field" id="modalPageNameInput" placeholder="ຕົວຢ່າງ: ซี่รีย์จีน เต็มเรื่อง">
+      </div>
+      <div class="form-group">
+        <label class="form-lbl">Facebook Page ID (ຕົວເລກເທົ່ານັ້ນ):</label>
+        <input type="text" inputmode="numeric" class="input-field" id="modalPageIdInput" placeholder="ຕົວຢ່າງ: 1332661329928072">
       </div>
       <div style="display: flex; gap: 8px; justify-content: flex-end; margin-top: 14px;">
         <button class="btn btn-secondary" style="padding: 8px 14px;" onclick="closeModal()">ຍົກເລີກ</button>
-        <button class="btn btn-start" style="padding: 8px 16px;" onclick="submitPageId()">💾 ບັນທຶກ</button>
+        <button class="btn btn-start" style="padding: 8px 16px;" onclick="submitPageEdit()">💾 ບັນທຶກ</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal Add New Page -->
+  <div class="modal-overlay" id="addPageModal">
+    <div class="modal-box">
+      <div style="font-size: 15px; font-weight: 800; margin-bottom: 8px;">➕ ເພີ່ມ Page Facebook ໃໝ່</div>
+      <div style="font-size: 12px; color: var(--text-muted); margin-bottom: 12px;">ເພີ່ມເພຈເຂົ້າໃນກຸ່ມ Bot ເພື່ອໃຫ້ອັດຕະໂນມັດອັບໂຫຼດ:</div>
+      <div class="form-group">
+        <label class="form-lbl">ເລືອກກຸ່ມ (Target Group):</label>
+        <select class="input-field" id="addPageGroupSelect">
+          <option value="group_shared_3pages">ກຸ່ມ 3 Pages (ຊີຣີຈີນ เต็มเรื่อง)</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label class="form-lbl">ຊື່ Page (Page Name):</label>
+        <input type="text" class="input-field" id="addPageNameInput" placeholder="ຕົວຢ່າງ: ໜັງສັ້ນຈີນ VIP">
+      </div>
+      <div class="form-group">
+        <label class="form-lbl">Facebook Page ID (ຕົວເລກ 10-20 ຫຼັກ):</label>
+        <input type="text" inputmode="numeric" class="input-field" id="addPageIdInput" placeholder="ຕົວຢ່າງ: 104640754387216">
+      </div>
+      <div style="display: flex; gap: 8px; justify-content: flex-end; margin-top: 14px;">
+        <button class="btn btn-secondary" style="padding: 8px 14px;" onclick="closeAddPageModal()">ຍົກເລີກ</button>
+        <button class="btn btn-start" style="padding: 8px 16px;" onclick="submitAddPage()">➕ ເພີ່ມ Page</button>
       </div>
     </div>
   </div>
@@ -1214,8 +1315,27 @@ MOBILE_UI_HTML = """<!DOCTYPE html>
       } else {
         if (currPinInput.length < 8) currPinInput += k;
       }
-      disp.value = currPinInput;
+      if (disp) disp.value = currPinInput;
+      if (currPinInput.length === 4) {
+        submitPinLogin();
+      }
     }
+
+    // Support keyboard input anywhere on screen when locked
+    document.addEventListener('keydown', function(e) {
+      const modal = document.getElementById('pinLockModal');
+      if (!modal || modal.style.display === 'none') return;
+      if (e.target && e.target.id === 'pinDisplay') return;
+      if (/^[0-9]$/.test(e.key)) {
+        pressKey(e.key);
+      } else if (e.key === 'Backspace') {
+        pressKey('DEL');
+      } else if (e.key === 'Enter') {
+        submitPinLogin();
+      } else if (e.key === 'Escape') {
+        pressKey('C');
+      }
+    });
 
     async function submitPinLogin() {
       const errMsg = document.getElementById('pinErrorMsg');
@@ -1443,6 +1563,16 @@ MOBILE_UI_HTML = """<!DOCTYPE html>
         container.innerHTML = '<div style="color: var(--text-muted); font-size: 12px;">ຍັງບໍ່ມີຂໍ້ມູນ Groups</div>';
         return;
       }
+
+      let totalPages = 0;
+      groups.forEach(g => { totalPages += (g.pages || []).length; });
+
+      const titleEl = document.getElementById('pagesCardTitle');
+      if (titleEl) titleEl.innerText = '🌐 ຈັດການ Pages Facebook (' + totalPages + ' Pages)';
+
+      const navLbl = document.getElementById('navPagesLbl');
+      if (navLbl) navLbl.innerText = 'ເພຈ (' + totalPages + ')';
+
       let html = '';
       groups.forEach((grp, gIdx) => {
         const isG1 = grp.group_id === 'group_shared_3pages';
@@ -1452,24 +1582,29 @@ MOBILE_UI_HTML = """<!DOCTYPE html>
         html += `<div class="group-card">
           <div class="group-header">
             <div class="group-name" style="color: ${color};">${grp.group_name || 'Group ' + (gIdx+1)}</div>
-            <span style="font-size: 10px; background: #1c2236; padding: 2px 7px; border-radius: 10px; color: ${color}; font-weight: 700;">${catName}</span>
+            <div style="display:flex; gap:6px; align-items:center;">
+              <span style="font-size: 10px; background: #1c2236; padding: 2px 7px; border-radius: 10px; color: ${color}; font-weight: 700;">${catName}</span>
+              <button class="btn-sm btn-success" onclick="openAddPageModal('${grp.group_id}')" style="padding:3px 8px; font-size:10px;">➕ ເພີ່ມ</button>
+            </div>
           </div>
           <div style="font-size: 11px; color: var(--text-muted); margin-bottom: 8px;">📁 ໂຟນເດີ: <span style="color: #cbd5e1;">${grp.video_folder || '-'}</span></div>`;
 
         (grp.pages || []).forEach((p, pIdx) => {
           const hasId = p.page_id && String(p.page_id).trim() !== '';
           const isActive = activePageId && p.page_id && String(activePageId) === String(p.page_id);
+          const encName = encodeURIComponent(p.page_name || '');
 
           html += `<div class="page-row ${isActive ? 'active-row' : ''}">
             <div style="flex: 1; padding-right: 8px;">
-              <div class="page-info-name">${p.page_name || 'Page ' + (pIdx+1)}</div>
+              <div class="page-info-name">${escapeHtml(p.page_name || 'Page ' + (pIdx+1))}</div>
               <div class="page-info-id">ID: ${hasId ? p.page_id : '<span style="color: var(--warning); font-weight: bold;">(ຍັງບໍ່ມີ ID)</span>'}</div>
             </div>
-            <div class="page-actions">
-              <button class="btn-sm btn-secondary" onclick="openEditModal('${grp.group_id}', ${pIdx}, '${escapeJs(p.page_name)}', '${p.page_id || ''}')">✏️ ໃສ່ ID</button>
+            <div class="page-actions" style="display:flex; gap:4px; align-items:center;">
+              <button class="btn-sm btn-secondary" onclick="openEditModal('${grp.group_id}', ${pIdx}, '${encName}', '${p.page_id || ''}')" title="ແກ້ໄຂຊື່ & ID">✏️ ແກ້ໄຂ</button>
+              <button class="btn-sm btn-danger" onclick="deletePage('${grp.group_id}', ${pIdx}, '${encName}')" title="ລຶບ Page ອອກ">🗑️</button>
               ${isActive 
                 ? '<span class="btn-sm" style="background: #059669;">⚡ Active</span>' 
-                : `<button class="btn-sm btn-start" onclick="switchActivePage('${grp.group_id}', '${p.page_id || ''}', '${escapeJs(p.page_name)}')">ເລືອກ</button>`}
+                : `<button class="btn-sm btn-start" onclick="switchActivePage('${grp.group_id}', '${p.page_id || ''}', '${encName}')">ເລືອກ</button>`}
             </div>
           </div>`;
         });
@@ -1488,7 +1623,7 @@ MOBILE_UI_HTML = """<!DOCTYPE html>
       container.innerHTML = items.slice(0, 30).map((it, idx) => `
         <div style="background: #0d0f17; border: 1px solid #1c2236; border-radius: 8px; padding: 8px 10px; font-size: 12px; display: flex; justify-content: space-between; align-items: center;">
           <div style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 75%;">
-            <span style="color: var(--text-muted); font-weight: bold;">#${idx+1}</span> ${it.filename}
+            <span style="color: var(--text-muted); font-weight: bold;">#${idx+1}</span> ${escapeHtml(it.filename)}
           </div>
           <span style="color: #38bdf8; font-size: 10px; font-weight: bold;">${it.size_mb ? it.size_mb + ' MB' : ''}</span>
         </div>
@@ -1540,9 +1675,10 @@ MOBILE_UI_HTML = """<!DOCTYPE html>
       }
     }
 
-    async function switchActivePage(groupId, pageId, pageName) {
+    async function switchActivePage(groupId, pageId, encName) {
+      const pageName = decodeURIComponent(encName || '');
       if (!pageId) {
-        alert('Page ນີ້ຍັງບໍ່ມີ Page ID! ກະລຸນາກົດ ✏️ ໃສ່ ID ກ່ອນ.');
+        alert('Page ນີ້ຍັງບໍ່ມີ Page ID! ກະລຸນາກົດ ✏️ ແກ້ໄຂ ເພື່ອໃສ່ ID ກ່ອນ.');
         return;
       }
       try {
@@ -1560,10 +1696,11 @@ MOBILE_UI_HTML = """<!DOCTYPE html>
       }
     }
 
-    function openEditModal(groupId, pageIdx, pageName, currId) {
+    function openEditModal(groupId, pageIdx, encName, currId) {
+      const pageName = decodeURIComponent(encName || '');
       document.getElementById('modalGroupId').value = groupId;
       document.getElementById('modalPageIndex').value = pageIdx;
-      document.getElementById('modalPageName').innerText = pageName;
+      document.getElementById('modalPageNameInput').value = pageName;
       document.getElementById('modalPageIdInput').value = currId || '';
       document.getElementById('editModal').style.display = 'flex';
     }
@@ -1572,29 +1709,113 @@ MOBILE_UI_HTML = """<!DOCTYPE html>
       document.getElementById('editModal').style.display = 'none';
     }
 
-    async function submitPageId() {
+    async function submitPageEdit() {
       const gId = document.getElementById('modalGroupId').value;
       const pIdx = document.getElementById('modalPageIndex').value;
+      const newName = document.getElementById('modalPageNameInput').value.trim();
       const newId = document.getElementById('modalPageIdInput').value.trim();
 
+      if (!newName) {
+        alert('ກະລຸນາໃສ່ຊື່ Page');
+        return;
+      }
       if (!newId) {
-        alert('ກະລຸນາໃສ່ Page ID');
+        alert('ກະລຸນາໃສ່ Facebook Page ID');
         return;
       }
 
       try {
-        const res = await fetch('/api/action/update_page_id', {
+        const res = await fetch('/api/action/update_page', {
           method: 'POST',
           headers: getAuthHeaders(),
-          body: JSON.stringify({ group_id: gId, page_index: parseInt(pIdx), page_id: newId })
+          body: JSON.stringify({ group_id: gId, page_index: parseInt(pIdx), page_name: newName, page_id: newId })
         });
         if (res.status === 401) { lockApp(); return; }
         const json = await res.json();
-        alert(json.message || 'ອັບເດດ Page ID ສຳເລັດ');
+        alert(json.message || 'ບັນທຶກຂໍ້ມູນ Page ສຳເລັດ');
         closeModal();
         fetchState();
       } catch (e) {
         alert('ຜິດພາດ: ' + e);
+      }
+    }
+
+    function openAddPageModal(preselectedGroupId = '') {
+      const sel = document.getElementById('addPageGroupSelect');
+      if (sel && gLastData && gLastData.page_groups) {
+        sel.innerHTML = gLastData.page_groups.map(g => 
+          `<option value="${g.group_id}">${escapeHtml(g.group_name || g.group_id)}</option>`
+        ).join('');
+        if (preselectedGroupId) sel.value = preselectedGroupId;
+      }
+      document.getElementById('addPageNameInput').value = '';
+      document.getElementById('addPageIdInput').value = '';
+      document.getElementById('addPageModal').style.display = 'flex';
+    }
+
+    function closeAddPageModal() {
+      document.getElementById('addPageModal').style.display = 'none';
+    }
+
+    async function submitAddPage() {
+      const gId = document.getElementById('addPageGroupSelect').value;
+      const pName = document.getElementById('addPageNameInput').value.trim();
+      const pId = document.getElementById('addPageIdInput').value.trim();
+
+      if (!pName) {
+        alert('ກະລຸນາໃສ່ຊື່ Page');
+        return;
+      }
+      if (!pId) {
+        alert('ກະລຸນາໃສ່ Facebook Page ID');
+        return;
+      }
+
+      try {
+        const res = await fetch('/api/action/add_page', {
+          method: 'POST',
+          headers: getAuthHeaders(),
+          body: JSON.stringify({ group_id: gId, page_name: pName, page_id: pId })
+        });
+        if (res.status === 401) { lockApp(); return; }
+        const json = await res.json();
+        alert(json.message || 'ເພີ່ມ Page ສຳເລັດແລ້ວ');
+        closeAddPageModal();
+        fetchState();
+      } catch (e) {
+        alert('ຜິດພາດ: ' + e);
+      }
+    }
+
+    async function deletePage(groupId, pageIdx, encName) {
+      const pageName = decodeURIComponent(encName || '');
+      if (!confirm(`🗑️ ທ່ານແນ່ໃຈບໍ່ວ່າຕ້ອງການລຶບ Page "${pageName}" ອອກຈາກລະບົບ?`)) return;
+
+      try {
+        const res = await fetch('/api/action/delete_page', {
+          method: 'POST',
+          headers: getAuthHeaders(),
+          body: JSON.stringify({ group_id: groupId, page_index: parseInt(pageIdx) })
+        });
+        if (res.status === 401) { lockApp(); return; }
+        const json = await res.json();
+        alert(json.message || 'ລຶບ Page ສຳເລັດແລ້ວ');
+        fetchState();
+      } catch (e) {
+        alert('ຜິດພາດ: ' + e);
+      }
+    }
+
+    
+    async function retryFailedVideos() {
+      if (confirm('🔄 ທ່ານຕ້ອງການ Reset ວິດີໂອທີ່ເຄີຍຜິດພາດທັງໝົດ ເພື່ອນຳກັບມາອັບໂຫຼດໃໝ່ຫຼືບໍ່?')) {
+        await triggerAction('retry_failed');
+      }
+    }
+
+    async function clearFailedHistory() {
+      if (confirm('🧹 ທ່ານຕ້ອງການລຶບປະຫວັດວິດີໂອທີ່ຜິດພາດອອກຈາກລະບົບຫຼືບໍ່?')) {
+        await triggerAction('clear_failed');
       }
     }
 
@@ -1610,8 +1831,7 @@ MOBILE_UI_HTML = """<!DOCTYPE html>
 
       document.getElementById('cfgTitlePrefix').value = c.title_prefix || '';
       document.getElementById('cfgCaptionTemplate').value = c.caption_template || '';
-      document.getElementById('cfgHashtags').value = Array.isArray(c.hashtag_pool) ? c.hashtag_pool.join('
-') : '';
+      document.getElementById('cfgHashtags').value = Array.isArray(c.hashtag_pool) ? c.hashtag_pool.join(String.fromCharCode(10)) : '';
       document.getElementById('cfgTagsCount').value = c.tags_count || 10;
 
       document.getElementById('cfgAiEnabled').checked = !!c.ai_caption_enabled;
@@ -1630,8 +1850,7 @@ MOBILE_UI_HTML = """<!DOCTYPE html>
 
     async function saveComprehensiveSettings() {
       const hashtagsRaw = document.getElementById('cfgHashtags').value;
-      const tagsList = hashtagsRaw.split(/[
-,]+/).map(t => t.trim()).filter(Boolean);
+      const tagsList = hashtagsRaw.split(String.fromCharCode(10)).flatMap(line => line.split(",")).map(t => t.trim()).filter(Boolean);
 
       const payload = {
         randomize_delay: document.getElementById('cfgRandomDelay').checked,
@@ -1758,17 +1977,141 @@ def api_action(action_name: str):
     action_clean = action_name.lower().strip()
     payload = request.get_json(silent=True) or {}
 
-    # Input Sanitization
-    if action_clean in ["switch_page", "update_page_id"]:
+    cfg_path = os.path.abspath("./config.json")
+    if not os.path.exists(cfg_path):
+        cfg_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "config.json")
+
+    # 1. Action: Add New Page
+    if action_clean == "add_page":
+        g_id = payload.get("group_id", "")
+        p_name = payload.get("page_name", "").strip()
+        raw_id = str(payload.get("page_id", "")).strip()
+        clean_id = re.sub(r'[^0-9]', '', raw_id)
+
+        if not p_name:
+            return jsonify({"success": False, "message": "❌ ກະລຸນາໃສ່ຊື່ Page"}), 400
+        if not clean_id or len(clean_id) < 5 or len(clean_id) > 32:
+            return jsonify({"success": False, "message": "❌ Page ID ບໍ່ຖືກຕ້ອງ (ຕ້ອງເປັນຕົວເລກ 5-32 ຫຼັກ)"}), 400
+
+        try:
+            with open(cfg_path, "r", encoding="utf-8") as f:
+                c = json.load(f)
+            updated = False
+            for grp in c.get("page_groups", []):
+                if grp.get("group_id") == g_id or not g_id:
+                    pages = grp.setdefault("pages", [])
+                    if any(str(p.get("page_id")) == clean_id for p in pages):
+                        return jsonify({"success": False, "message": "⚠️ Page ID ນີ້ມີຢູ່ແລ້ວໃນກຸ່ມ"}), 400
+                    pages.append({"page_name": p_name, "page_id": clean_id})
+                    updated = True
+                    break
+            if updated:
+                with open(cfg_path, "w", encoding="utf-8") as f:
+                    json.dump(c, f, ensure_ascii=False, indent=2)
+                if ACTION_CALLBACK:
+                    try:
+                        ACTION_CALLBACK("add_page", payload)
+                    except Exception:
+                        pass
+                return jsonify({"success": True, "message": f"✅ ເພີ່ມ Page '{p_name}' ສຳເລັດແລ້ວ!"})
+            return jsonify({"success": False, "message": "❌ ບໍ່ພົບ Group ທີ່ເລືອກ"}), 404
+        except Exception as e:
+            return jsonify({"success": False, "message": f"ຜິດພາດ: {e}"}), 500
+
+    # 2. Action: Delete Page
+    elif action_clean == "delete_page":
+        g_id = payload.get("group_id", "")
+        p_idx = payload.get("page_index")
+        try:
+            with open(cfg_path, "r", encoding="utf-8") as f:
+                c = json.load(f)
+            deleted_name = ""
+            for grp in c.get("page_groups", []):
+                if grp.get("group_id") == g_id or not g_id:
+                    pages = grp.get("pages", [])
+                    if p_idx is not None and 0 <= int(p_idx) < len(pages):
+                        removed = pages.pop(int(p_idx))
+                        deleted_name = removed.get("page_name", "")
+                        break
+            if deleted_name:
+                with open(cfg_path, "w", encoding="utf-8") as f:
+                    json.dump(c, f, ensure_ascii=False, indent=2)
+                if ACTION_CALLBACK:
+                    try:
+                        ACTION_CALLBACK("delete_page", payload)
+                    except Exception:
+                        pass
+                return jsonify({"success": True, "message": f"🗑️ ລຶບ Page '{deleted_name}' ສຳເລັດແລ້ວ!"})
+            return jsonify({"success": False, "message": "❌ ບໍ່ພົບ Page ທີ່ຕ້ອງການລຶບ"}), 404
+        except Exception as e:
+            return jsonify({"success": False, "message": f"ຜິດພາດ: {e}"}), 500
+
+    # 3. Action: Update Page Name and/or ID
+    elif action_clean in ["update_page", "update_page_id"]:
+        g_id = payload.get("group_id", "")
+        p_idx = payload.get("page_index")
+        new_name = payload.get("page_name", "").strip()
         raw_id = str(payload.get("page_id", "")).strip()
         clean_id = re.sub(r'[^0-9]', '', raw_id)
         if not clean_id or len(clean_id) < 5 or len(clean_id) > 32:
             return jsonify({"success": False, "message": "❌ Page ID ບໍ່ຖືກຕ້ອງ (ຕ້ອງເປັນຕົວເລກ 5-32 ຫຼັກ)"}), 400
-        payload["page_id"] = clean_id
 
-    elif action_clean == "update_settings":
-        # Pass comprehensive settings payload to bot engine
-        pass
+        try:
+            with open(cfg_path, "r", encoding="utf-8") as f:
+                c = json.load(f)
+            updated = False
+            for grp in c.get("page_groups", []):
+                if grp.get("group_id") == g_id or not g_id:
+                    pages = grp.get("pages", [])
+                    if p_idx is not None and 0 <= int(p_idx) < len(pages):
+                        old_name = pages[int(p_idx)].get("page_name", "")
+                        if new_name:
+                            pages[int(p_idx)]["page_name"] = new_name
+                        pages[int(p_idx)]["page_id"] = clean_id
+                        # Sync active page if it was this one
+                        if c.get("page_name") == old_name or c.get("page_id") == clean_id:
+                            if new_name:
+                                c["page_name"] = new_name
+                            c["page_id"] = clean_id
+                            STATE.update(page_name=c["page_name"], page_id=c["page_id"])
+                        updated = True
+                        break
+            if updated:
+                with open(cfg_path, "w", encoding="utf-8") as f:
+                    json.dump(c, f, ensure_ascii=False, indent=2)
+                if ACTION_CALLBACK:
+                    try:
+                        ACTION_CALLBACK(action_clean, payload)
+                    except Exception:
+                        pass
+                return jsonify({"success": True, "message": f"💾 ບັນທຶກຂໍ້ມູນ Page ສຳເລັດ (ID: {clean_id})"})
+            return jsonify({"success": False, "message": "❌ ບໍ່ພົບ Page ທີ່ຕ້ອງການແກ້ໄຂ"}), 404
+        except Exception as e:
+            return jsonify({"success": False, "message": f"ຜິດພາດ: {e}"}), 500
+
+    # 4. Action: Switch Target Page
+    elif action_clean == "switch_page":
+        raw_id = str(payload.get("page_id", "")).strip()
+        clean_id = re.sub(r'[^0-9]', '', raw_id)
+        p_name = payload.get("page_name", "").strip()
+        if not clean_id or len(clean_id) < 5:
+            return jsonify({"success": False, "message": "❌ Page ID ບໍ່ຖືກຕ້ອງ"}), 400
+        try:
+            with open(cfg_path, "r", encoding="utf-8") as f:
+                c = json.load(f)
+            c["page_name"] = p_name
+            c["page_id"] = clean_id
+            with open(cfg_path, "w", encoding="utf-8") as f:
+                json.dump(c, f, ensure_ascii=False, indent=2)
+            STATE.update(page_name=p_name, page_id=clean_id)
+            if ACTION_CALLBACK:
+                try:
+                    ACTION_CALLBACK(action_clean, payload)
+                except Exception:
+                    pass
+            return jsonify({"success": True, "message": f"⚡ ປ່ຽນ Target Page ເປັນ '{p_name}' ແລ້ວ"})
+        except Exception as e:
+            return jsonify({"success": False, "message": f"ຜິດພາດ: {e}"}), 500
 
     lao_msgs = {
         "start": "🚀 ສັ່ງເລີ່ມອັບໂຫຼດສຳເລັດ",
@@ -1776,9 +2119,10 @@ def api_action(action_name: str):
         "resume": "▶️ ສັ່ງສືບຕໍ່ເຮັດວຽກສຳເລັດ",
         "stop": "⏹️ ສັ່ງຢຸດການອັບໂຫຼດສຳເລັດ",
         "post_cta": "📸 ສັ່ງ Gen ຮູບ AI & Post Follower CTA ແລ້ວ",
-        "switch_page": f"⚡ ປ່ຽນ Target Page ເປັນ '{payload.get('page_name', '')}' ແລ້ວ",
-        "update_page_id": f"💾 ບັນທຶກ Page ID: {payload.get('page_id', '')} ແລ້ວ",
-        "update_settings": "⚙️ ບັນທຶກການຕັ້ງຄ່າສຳເລັດແລ້ວ"
+        "skip_delay": "⚡ ສັ່ງຂ້າມເວລາພັກລໍຖ້າສຳເລັດ",
+        "update_settings": "⚙️ ບັນທຶກການຕັ້ງຄ່າສຳເລັດແລ້ວ",
+        "retry_failed": "🔄 Reset ວິດີໂອທີ່ຜິດພາດໃຫ້ນຳກັບມາອັບໂຫຼດໃໝ່ແລ້ວ",
+        "clear_failed": "🧹 ລ້າງປະຫວັດທີ່ຜິດພາດສຳເລັດແລ້ວ"
     }
 
     msg = lao_msgs.get(action_clean, f"ຮັບຄຳສັ່ງ '{action_clean}' ແລ້ວ")

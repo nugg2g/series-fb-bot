@@ -48,7 +48,12 @@ def find_other_running_instance() -> Optional[int]:
                     continue
                 cmdline = ' '.join(p.info.get('cmdline') or [])
                 cmdline_l = cmdline.lower()
-                if 'page reel uplaod 2' in cmdline_l:
+                try:
+                    cwd_l = (p.cwd() or '').lower()
+                except Exception:
+                    cwd_l = ''
+                is_reels_bot = ('page reel' in cmdline_l) or ('page reel' in cwd_l)
+                if is_reels_bot:
                     if any(target in cmdline_l for target in ['run.py', 'app_gui.py', 'cli.py', 'main.py']):
                         return p.info['pid']
             except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess):
@@ -82,18 +87,21 @@ def activate_existing_window(window_title_keyword: str = "Facebook Reels Auto-Up
     except Exception:
         pass
 
+_LOCK_FILE_FD = None
+
 def ensure_single_instance(app_identifier: str = "ThaiMovieDrama_ReelsBot_PG2") -> bool:
     """
     Guarantees that only ONE instance of the ReelsBot application runs at any time.
     Uses:
     1. Active process inspection via psutil (detects background/headless python runs).
-    2. Windows Named Mutex.
-    3. PID file tracking in logs/reels_bot.pid.
+    2. Linux fcntl.flock (exclusive file lock).
+    3. Windows Named Mutex.
+    4. PID file tracking in logs/reels_bot.pid.
     Returns True if this process acquired the exclusive lock.
     Returns False if another instance is already running (caller should exit immediately).
     """
-    global _MUTEX_HANDLE
-    if _MUTEX_HANDLE is not None:
+    global _MUTEX_HANDLE, _LOCK_FILE_FD
+    if _MUTEX_HANDLE is not None or _LOCK_FILE_FD is not None:
         # Already acquired by current process
         return True
 
@@ -117,8 +125,38 @@ def ensure_single_instance(app_identifier: str = "ThaiMovieDrama_ReelsBot_PG2") 
         return False
 
     if sys.platform != "win32":
-        # Non-windows fallback using lock file
-        return True
+        # Robust Linux atomic flock
+        try:
+            import fcntl
+            lock_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "logs", "reels_bot.lock"))
+            os.makedirs(os.path.dirname(lock_path), exist_ok=True)
+            _LOCK_FILE_FD = open(lock_path, "w")
+            fcntl.flock(_LOCK_FILE_FD, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            _LOCK_FILE_FD.seek(0)
+            _LOCK_FILE_FD.truncate()
+            _LOCK_FILE_FD.write(str(os.getpid()))
+            _LOCK_FILE_FD.flush()
+
+            os.makedirs(os.path.dirname(PID_FILE_PATH), exist_ok=True)
+            with open(PID_FILE_PATH, "w", encoding="utf-8") as f:
+                json.dump({
+                    "pid": os.getpid(),
+                    "app": app_identifier,
+                    "started_at": str(os.path.basename(sys.argv[0]))
+                }, f)
+            return True
+        except (IOError, BlockingIOError):
+            msg = (
+                f"\n=======================================================\n"
+                f"[SingleInstance] 🚨 Linux Exclusive Lock Busy: ReelsBot is already running!\n"
+                f"🛑 Exiting duplicate process immediately to prevent double-posting.\n"
+                f"=======================================================\n"
+            )
+            print(msg)
+            return False
+        except Exception as e:
+            print(f"[SingleInstance] Warning: Linux flock check failed ({e}), proceeding...")
+            return True
 
     try:
         import ctypes

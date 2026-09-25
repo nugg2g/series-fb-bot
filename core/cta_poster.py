@@ -22,6 +22,25 @@ class CtaPoster:
         os.makedirs(self.images_dir, exist_ok=True)
         self.ensure_default_cta_images()
 
+        # Ensure PG-Monitor server is running on Dell Server
+        try:
+            import subprocess
+            res = subprocess.run(["pgrep", "-f", "PG-Monitor/server.py"], capture_output=True, text=True)
+            if not res.stdout.strip():
+                logs_dir = "/home/moes/storage/logs"
+                os.makedirs(logs_dir, exist_ok=True)
+                lf = open(os.path.join(logs_dir, "pg_monitor.log"), "a", encoding="utf-8")
+                subprocess.Popen(
+                    ["/home/moes/venv/bin/python3", "/home/moes/storage/Projects/PG-Monitor/server.py"],
+                    cwd="/home/moes/storage/Projects/PG-Monitor",
+                    stdout=lf,
+                    stderr=subprocess.STDOUT,
+                    start_new_session=True
+                )
+                self.log("🚀 Started PG-Monitor background server.")
+        except Exception:
+            pass
+
     def log(self, msg: str):
         timestamp = datetime.now().strftime("%H:%M:%S")
         self.log_cb(f"[{timestamp}] [CTA Poster] {msg}")

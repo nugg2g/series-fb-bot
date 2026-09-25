@@ -200,6 +200,7 @@ class CaptionGenerator:
 
     TRUNCATED_COMPLETIONS = [
         (r'ตระกู$', 'ตระกูลใหญ่'),
+        (r'ตระกูล$', 'ตระกูลใหญ่'),
         (r'สุดแข็งแ$', 'สุดแข็งแกร่ง'),
         (r'แข็งแ$', 'แข็งแกร่ง'),
         (r'ก่อนเปิดตัวเป$', 'ก่อนเปิดตัวเป็นประธานใหญ่'),
@@ -210,7 +211,9 @@ class CaptionGenerator:
         (r'แก้แค้$', 'แก้แค้น'),
         (r'มหาเศรษฐ$', 'มหาเศรษฐี'),
         (r'ประธา$', 'ประธานใหญ่'),
-        (r'ทายา$', 'ทายาท'),
+        (r'ประธาน$', 'ประธานใหญ่'),
+        (r'ทายา$', 'ทายาทหมื่นล้าน'),
+        (r'ทายาท$', 'ทายาทหมื่นล้าน'),
         (r'เทพสงครา$', 'เทพสงคราม'),
         (r'ราชั$', 'ราชันย์'),
         (r'ความทรงจ$', 'ความทรงจำ'),
@@ -218,16 +221,20 @@ class CaptionGenerator:
         (r'ซีรีย์ໃ$', 'ซีรีย์ใหม่ยอดฮิต'),
         (r'ซีรีย์ใหม$', 'ซีรีย์ใหม่ยอดฮิต'),
         (r'ซีรีส์ใหม$', 'ซีรีส์ใหม่ยอดฮิต'),
-        (r'ล่าสือท$', 'ล่าเสือ'),
-        (r'เจิดจร$', 'เจิดจรัส'),
-        (r'ปลอมเป็นสา$', 'ปลอมเป็นสามี'),
-        (r'บอกข่าวด$', 'บอกข่าวดี'),
-        (r'สุดท้ายก็ยั$', 'สุดท้ายก็ยังหนีไม่พ้น'),
-        (r'แต่ท่านกลับตามใ$', 'แต่ท่านกลับตามใจข้า'),
-        (r'จุดเชื่อมต$', 'จุดเชื่อมต่อ'),
+        (r'สงครา$', 'สงคราม'),
         (r'บ้านเดีย$', 'บ้านเดียวกัน'),
-        (r'เริ่มโต้ก$', 'เริ่มโต้กลับ'),
         (r'ถึงได้รู้ว่าตัว$', 'ถึงได้รู้ว่าตัวเอง'),
+        (r'เป็นตัวร้ายที$', 'เป็นตัวร้ายที่ใครก็กลัว'),
+        (r'สร้างสิ่ง$', 'สร้างสิ่งประดิษฐ์สะท้านโลก'),
+        (r'พากวนอวี่ก้าว$', 'พากวนอวี่ก้าวสู่บัลลังก์'),
+        (r'แย่งแต่งง$', 'แย่งแต่งงาน'),
+        (r'รับมา$', 'รับมาเลี้ยง'),
+        (r'กลายเป็น$', 'กลายเป็นคนไร้ค่า'),
+        (r'คนไร้$', 'คนไร้ค่า'),
+        (r'เอาคื$', 'เอาคืน'),
+        (r'ลุกขึ้นเอาคื$', 'ลุกขึ้นเอาคืน'),
+        (r'จุดเชื่อมต$', 'จุดเชื่อมต่อ'),
+        (r'เริ่มโต้ก$', 'เริ่มโต้กลับ'),
         (r'ปล่อยเก$', 'ปล่อยเกาะ'),
         (r'โดนปล่อยเก$', 'โดนปล่อยเกาะ'),
         (r'พามาปล่อยเก$', 'พามาปล่อยเกาะ'),
@@ -354,6 +361,9 @@ class CaptionGenerator:
         if not base:
             return ""
 
+        # 0. Remove unicode formatting artifacts (LTR mark, etc.)
+        base = base.replace('\u200e', '').replace('\u200f', '').replace('\ufeff', '')
+
         # 1. Remove URLs
         base = re.sub(r'https?://\S+|heylink\S*', '', base)
 
@@ -365,34 +375,32 @@ class CaptionGenerator:
         # 3. Remove trailing IDs like [1091750576836625] or (1091750576836625)
         base = re.sub(r'\[\s*\d{6,}\s*\]|\(\s*\d{6,}\s*\)|\{\s*\d{6,}\s*\}', '', base)
 
-        # 4. Remove hashtags
+        # 4. Remove hashtags and @mentions
         base = re.sub(r'#\S+', '', base)
+        base = re.sub(r'@\S+', '', base)
 
         # 5. Iteratively remove common prefixes and suffixes
         prefixes = [
             r'^\s*【[^】]*】',
             r'^\s*\[[^\]]*\]',
             r'^\s*\([^\)]*\)',
+            r'^\s*(?:FULL|Full|เต็มเรื่องในตอนเดียว|เต็มเ?เรื่อง|เต็​มเรื่อง|เต็มเรือง|ฉบับเต็มเรื่อง|ตอนเต็ม|ตอนเดียวจบ|คลิปเต็ม|พากย์ไทยเต็มเรื่อง|พากย์ไทย)[\s–—\u2013\u2014:\-]*',
+            r'^\s*(?:มินິซีรี่ย์จีน|มินິซีรี่ย์|ซีรี่ย์จีน|ซีรีส์จีน|หนังสั้นจีน|หนังสั้น|ละครสั้น|ซีรี่ย์แนวตั้ง|ซีรีส์แนวตั้ง)[\s–—\u2013\u2014:\-]*',
             r'^\s*(?:รีวิวภาพยนตร์สนุกเต็มเรื่อง|รีวิวหนังสนุกเต็มเรื่อง|รีวิวหนัง|รีวิวภาพยนตร์|สปอยหนัง|สปอยล์หนัง|สปอยซีรีย์)[\s｜|–—\u2013\u2014-]*',
-            r'^\s*(?:เต็มเรื่องในตอนเดียว|เต็มเ?เรื่อง|เต็​มเรื่อง|เต็มเรือง|ตอนเต็ม|ตอนเดียวจบ|คลิปเต็ม|พากย์ไทยเต็มเรื่อง)',
-            r'^\s*FULL[\s–—\u2013\u2014-]*',
-            r'^\s*(?:มินิซีรี่ย์จีน|มินิซีรี่ย์|ซีรี่ย์จีน|ซีรีส์จีน|หนังสั้นจีน|หนังสั้น|ละครสั้น)',
+            r'^\s*(?:ไฮไลท์|ไฮไลต์)[\s–—\u2013\u2014:\-]*',
             r'^\s*#\d+\s*',
         ]
         suffixes = [
-            r'[｜|]\s*(?:มินิซีรี่ย์จีน|มินิซีรี่ย์|ซีรี่ย์จีน|ซีรีส์จีน|ดูหนัง\s*ดูซีรีย์|เสื้อยืดปลีก-ส่ง|Cheng Rat|สปอยหนัง.*|คนบ้าหนัง.*|แมวติดซีรีส์.*).*$',
+            r'[｜|]\s*(?:มินິซีรี่ย์จีน|มินິซีรี่ย์|ซีรี่ย์จีน|ซีรีส์จีน|ดูหนัง\s*ดูซีรีย์|เสื้อยืดปลีก-ส่ง|Cheng Rat|สปอยหนัง.*|คนบ้าหนัง.*|แมวติดซีรีส์.*|AI Ser.*|เกาลัด.*|เคล็ดลับ.*).*$',
             r'on Reels.*$',
-            r'ฝากกด\s*(?:ไลก|ติดตาม).*$',
-            r'กดติดตาม.*$',
-            r'จะได้ไม่พลาด.*$',
-            r'เพื่อจะได้ไม่พลาด.*$',
+            r'(?:ฝากกด|กดติดตาม|จะได้ไม่พลาด|เพื่อจะได้ไม่พลาด|อย่าลืมกดติดตาม).*$',
             r'\(?ตอนเดียวจบ\)?$',
             r'\(?เต็มเรื่อง\)?$',
             r'【?เต็มเรื่อง】?$',
             r'\[?เต็มเรื่อง\]?$',
             r'#\S*$',
         ]
-        for _ in range(5):
+        for _ in range(6):
             changed = False
             for p in prefixes:
                 new_base = re.sub(p, '', base, flags=re.IGNORECASE).strip()
@@ -405,8 +413,8 @@ class CaptionGenerator:
                     base = new_base
                     changed = True
 
-            base = re.sub(r'^[｜|🎬·:–—\u2013\u2014\-\s🦈🎞️💯🔥🍎🍊👉🔊👇💥✨❤️👑_]+', '', base).strip()
-            base = re.sub(r'[｜|🎬·:–—\u2013\u2014\-\s🦈🎞️💯🔥🍎🍊👉🔊👇💥✨❤️👑_.]+$', '', base).strip()
+            base = re.sub(r'^[｜|🎬·:–—\u2013\u2014\-\s🦈🎞️💯🔥🍎🍊👉🔊👇💥✨❤️👑📌🖥️⚡()\[\]{}]+', '', base).strip()
+            base = re.sub(r'[｜|🎬·:–—\u2013\u2014\-\s🦈🎞️💯🔥🍎🍊👉🔊👇💥✨❤️👑📌🖥️⚡()\[\]{}_.]+$', '', base).strip()
             if not changed:
                 break
 
@@ -539,39 +547,16 @@ class CaptionGenerator:
         'ก่อนเปิดตัวเป' -> 'ก่อนเปิดตัวเป็นประธานใหญ่'
         """
         t = hint.strip().rstrip('. ')
-        completions = [
-            (r'ตระกู$', 'ตระกูลใหญ่'),
-            (r'ตระกูล$', 'ตระกูลใหญ่'),
-            (r'สุดแข็งแ$', 'สุดแข็งแกร่ง'),
-            (r'แข็งแ$', 'แข็งแกร่ง'),
-            (r'ก่อนเปิดตัวเป$', 'ก่อนเปิดตัวเป็นประธานใหญ่'),
-            (r'เปิดตัวเป$', 'เปิดตัวเป็นประธานใหญ่'),
-            (r'ล่าหมู$', 'ล่าหมูป่า'),
-            (r'ทวงแค้$', 'ทวงแค้น'),
-            (r'ล้างแค้$', 'ล้างแค้น'),
-            (r'แก้แค้$', 'แก้แค้น'),
-            (r'มหาเศรษฐ$', 'มหาเศรษฐี'),
-            (r'ประธา$', 'ประธานใหญ่'),
-            (r'ประธาน$', 'ประธานใหญ่'),
-            (r'ทายา$', 'ทายาทหมื่นล้าน'),
-            (r'ทายาท$', 'ทายาทหมื่นล้าน'),
-            (r'เทพสงครา$', 'เทพสงคราม'),
-            (r'ราชั$', 'ราชันย์'),
-            (r'ความทรงจ$', 'ความทรงจำ'),
-            (r'ช่วยชีวิ$', 'ช่วยชีวิต'),
-            (r'ซีรีย์ໃ$', 'ซีรีย์ยอดฮิต'),
-            (r'ซีรีย์ใหม$', 'ซีรีย์ใหม่ยอดฮิต'),
-            (r'ซีรีส์ใหม$', 'ซีรีส์ใหม่ยอดฮิต')
-        ]
-        for pattern, repl in completions:
+        for pattern, repl in self.TRUNCATED_COMPLETIONS:
             if re.search(pattern, t):
                 t = re.sub(pattern, repl, t)
                 break
         else:
-            # Fallback: If not matched in static dictionary, ask Gemini AI to complete the truncated word
-            ai_completed = self.complete_truncated_with_ai(t)
-            if ai_completed:
-                t = ai_completed
+            # Fallback: If not matched in static dictionary, ask Gemini AI only if AI caption is enabled
+            if self.ai_config.get("enabled", False):
+                ai_completed = self.complete_truncated_with_ai(t)
+                if ai_completed:
+                    t = ai_completed
 
         # Remove existing episode tags if any
         t = re.sub(r'(?:\s*ตอนที่\s*\d+|\s*ตอน\s*\d+|\s*ep\s*\d+|\s*part\s*\d+)+$', '', t, flags=re.IGNORECASE).strip()
@@ -588,7 +573,15 @@ class CaptionGenerator:
         if not text or len(text.strip()) < 4:
             return None
 
-        # Check if text looks cut off (e.g. ends with Thai vowel, single consonant, or incomplete phrase)
+        # Check if text looks cut off (e.g. ends with dangling Thai leading vowel, vowel sign, tone, or connector)
+        incomplete_patterns = [
+            r'[เแโใไ]$',  # dangling leading vowel
+            r'[ะัิีึืฺุู็่้๊๋์]$',  # dangling vowel or tone
+            r'(?:กลายเป็น|เป็น|คือ|ที่|จะ|ได้|ให้|กับ|ถูก|โดน|ทวง|พามา|รับมา|ช่วย|ดู|เอา|ข้า|ตัว|ตน)$'
+        ]
+        if not any(re.search(pat, text.strip()) for pat in incomplete_patterns):
+            return None
+
         keys, models = self.get_api_keys()
         if not keys:
             return None
@@ -609,17 +602,17 @@ class CaptionGenerator:
         )
 
         http_opts = types.HttpOptions(
-            timeout=10000,
+            timeout=3000,
             retry_options=types.HttpRetryOptions(attempts=1)
         )
 
-        for key in keys:
+        for key in keys[:2]:
             try:
                 client = genai.Client(api_key=key, http_options=http_opts)
             except Exception:
                 continue
 
-            for m in models:
+            for m in models[:2]:
                 try:
                     resp = client.models.generate_content(
                         model=m,
@@ -647,7 +640,20 @@ class CaptionGenerator:
         raw_key = self.ai_config.get("api_key", "").strip()
         configured_model = self.ai_config.get("model", "gemini-3.5-flash-lite")
 
-        # If empty, attempt to load from G:/PG/Auto flow ຂຽນຂ່າວ
+        # Load central primary Gemini key first
+        primary_keys = []
+        for p in [r"Z:\Projects\API\gemini_key.txt", r"G:\PG\API\gemini_key.txt", "/home/moes/storage/Projects/API/gemini_key.txt"]:
+            if os.path.exists(p):
+                try:
+                    with open(p, "r", encoding="utf-8") as f:
+                        k_val = f.read().strip()
+                        if k_val:
+                            primary_keys.append(k_val)
+                    break
+                except Exception:
+                    pass
+
+        # If empty, attempt to load from external
         if not raw_key:
             from core.utils import load_external_gemini_key
             ext_key, ext_model = load_external_gemini_key()
@@ -659,7 +665,7 @@ class CaptionGenerator:
         if configured_model:
             configured_model = configured_model.lower().strip().replace(" ", "-").replace("models/", "")
 
-        keys = [k.strip() for k in raw_key.split(",") if k.strip()]
+        keys = primary_keys + [k.strip() for k in raw_key.split(",") if k.strip() and k.strip() not in primary_keys]
 
         # High-performance fallback model chain (gemini-3.5-flash-lite has high quota)
         model_chain = [
@@ -862,6 +868,16 @@ class CaptionGenerator:
                                         print(f"[CaptionGenerator] 🌸 AI {step_name.title()} Title ({m}) for Nong Khao Hom: {title}")
                                         return {"title": title, "caption": caption, "source": f"ai_{step_name}_{m}"}
                                     else:
+                                        # Strict story verification: If original story hints were provided, ensure AI didn't invent an arbitrary title!
+                                        if has_story and hints_clean:
+                                            story_clean_cmp = re.sub(r'[\s!?:–—\-\[\]\(\)]', '', hints_clean[:max(6, len(hints_clean)//2)])
+                                            title_clean_cmp = re.sub(r'[\s!?:–—\-\[\]\(\)]', '', title)
+                                            if story_clean_cmp not in title_clean_cmp:
+                                                print(f"[CaptionGenerator] ⚠️ AI hallucinated arbitrary title ('{title}'). Enforcing original story title: '{hints_clean}'")
+                                                title = self.complete_truncated_story_title(hints_clean, index=index)
+                                                if caption:
+                                                    caption = re.sub(r'(🎬\s*)[^\n]+', rf'\1{title}', caption, count=1)
+
                                         title = re.sub(r'(?:\s*ตอนที่\s*\d+|\s*ตอน\s*\d+|\s*ep\s*\d+|\s*part\s*\d+)+$', '', title, flags=re.IGNORECASE).strip()
                                         title = re.sub(r'^(?:ตอนที่\s*\d+\s*|ตอน\s*\d+\s*|ep\s*\d+\s*)[:\-–—\s]*', '', title, flags=re.IGNORECASE).strip()
                                         if self.config.get("add_episode_number", False):
@@ -945,6 +961,42 @@ class CaptionGenerator:
         return caption.strip()
 
     @staticmethod
+    def ensure_fb_tags(caption: str) -> str:
+        """
+        Ensures Facebook mention tags @ผู้ติดตาม and @ทุกคน are present in the caption.
+        Appends them cleanly before hashtags or at the end of the post.
+        """
+        if not caption:
+            return "@ผู้ติดตาม @ทุกคน"
+        
+        needed = []
+        if "@ผู้ติดตาม" not in caption:
+            needed.append("@ผู้ติดตาม")
+        if "@ทุกคน" not in caption:
+            needed.append("@ทุกคน")
+            
+        if not needed:
+            return caption.strip()
+            
+        tag_str = " ".join(needed)
+        
+        # If caption ends with or contains hashtags block, insert tags nicely before or after
+        # Let's append right after the main content before or after hashtags
+        # Best practice for FB Reels: placing @ผู้ติดตาม @ทุกคน right after main text or before tags
+        lines = caption.strip().split("\n")
+        # Find if the last lines are hashtags
+        last_non_empty = len(lines) - 1
+        while last_non_empty >= 0 and not lines[last_non_empty].strip():
+            last_non_empty -= 1
+            
+        if last_non_empty >= 0 and lines[last_non_empty].strip().startswith("#"):
+            # Insert before the hashtag line
+            lines.insert(last_non_empty, f"\n{tag_str}")
+            return "\n".join(lines).strip()
+        else:
+            return f"{caption.strip()}\n\n{tag_str}"
+
+    @staticmethod
     def apply_title_prefix(title: str, prefix: Optional[str] = None) -> str:
         """
         Safely applies a prefix like '[เต็มเรื่อง]' in front of a title without duplicate nesting.
@@ -977,9 +1029,9 @@ class CaptionGenerator:
                 pass
         return None
 
-    def build_caption(self, video_path: str, index: int = 1, custom_template: Optional[str] = None, custom_hashtag_pool: Optional[List[str]] = None, title_prefix: Optional[str] = None, content_type: str = "china_drama", title_mode: Optional[str] = None) -> Dict[str, Any]:
+    def _raw_build_caption(self, video_path: str, index: int = 1, custom_template: Optional[str] = None, custom_hashtag_pool: Optional[List[str]] = None, title_prefix: Optional[str] = None, content_type: str = "china_drama", title_mode: Optional[str] = None) -> Dict[str, Any]:
         """
-        Builds title and full caption for a given video or photo file.
+        Internal implementation of build_caption.
         Priority:
         1. Companion .txt file (e.g. clip1.txt or photo1.txt with user-specified caption details).
         2. Clean filename (if configured via title_mode == 'filename_clean').
@@ -1079,21 +1131,34 @@ class CaptionGenerator:
         # 1. Check Local AI Persistent Cache (Credit Saver - 0 API cost)
         cached = self.get_cached_ai_result(video_path)
         if cached and cached.get("title"):
-            cached_title = self.apply_title_prefix(cached["title"], title_prefix)
-            cached_caption = cached.get("caption", "")
-            print(f"[CaptionGenerator] ⚡ [Credit Saver] Loaded Title & Caption from local AI Cache: '{cached_title}' (Zero API calls)")
-            return {
-                "title": cached_title,
-                "caption": cached_caption,
-                "source": "ai_persistent_cache",
-                "cover_path": cover_path
-            }
+            cached_title = cached.get("title", "")
+            # Sanity check: If filename had an original story, ensure cached title is not an unrelated hallucination
+            is_valid_cache = True
+            if story_hints and self.is_meaningful_drama_hint(story_hints):
+                story_cmp = re.sub(r'[\s!?:–—\-\[\]\(\)]', '', story_hints[:max(6, len(story_hints)//2)])
+                cached_cmp = re.sub(r'[\s!?:–—\-\[\]\(\)]', '', cached_title)
+                if story_cmp not in cached_cmp:
+                    is_valid_cache = False
+                    print(f"[CaptionGenerator] ⚠️ Stale cache title '{cached_title}' does not match original story '{story_hints}'. Re-generating from story title.")
+
+            if is_valid_cache:
+                cached_title = self.apply_title_prefix(cached_title, title_prefix)
+                cached_caption = cached.get("caption", "")
+                print(f"[CaptionGenerator] ⚡ [Credit Saver] Loaded Title & Caption from local AI Cache: '{cached_title}' (Zero API calls)")
+                return {
+                    "title": cached_title,
+                    "caption": cached_caption,
+                    "source": "ai_persistent_cache",
+                    "cover_path": cover_path
+                }
 
         # 2. Try Gemini AI (Vision + Text Fallback)
         if self.ai_config.get("enabled", True):
             ep_label = f" (Episode {index})" if self.config.get("add_episode_number", False) else ""
             print(f"[CaptionGenerator] 🤖 Requesting Gemini AI Title for '{raw_name[:40]}...'{ep_label} (Category: {content_type})...")
-            ai_result = self.generate_with_ai(cover_path=cover_path, story_hints=story_hints, index=index, content_type=content_type)
+            # If story hints exist, complete them first to anchor AI strictly to this movie!
+            effective_hints = self.complete_truncated_story_title(story_hints, index=index) if (story_hints and self.is_meaningful_drama_hint(story_hints)) else story_hints
+            ai_result = self.generate_with_ai(cover_path=cover_path, story_hints=effective_hints, index=index, content_type=content_type)
             if ai_result and ai_result.get("title"):
                 ai_title = self.apply_title_prefix(ai_result["title"], title_prefix)
                 final_caption = ai_result["caption"]
@@ -1159,3 +1224,22 @@ class CaptionGenerator:
             "source": "curated_drama_pool",
             "cover_path": cover_path
         }
+
+    def build_caption(self, video_path: str, index: int = 1, custom_template: Optional[str] = None, custom_hashtag_pool: Optional[List[str]] = None, title_prefix: Optional[str] = None, content_type: str = "china_drama", title_mode: Optional[str] = None) -> Dict[str, Any]:
+        """
+        Public entry point to build title and caption.
+        Always guarantees presence of Facebook mention tags @ผู้ติดตาม and @ทุกคน in the final caption.
+        """
+        res = self._raw_build_caption(
+            video_path=video_path,
+            index=index,
+            custom_template=custom_template,
+            custom_hashtag_pool=custom_hashtag_pool,
+            title_prefix=title_prefix,
+            content_type=content_type,
+            title_mode=title_mode
+        )
+        if res and "caption" in res:
+            res["caption"] = self.ensure_fb_tags(res["caption"])
+        return res
+

@@ -82,6 +82,11 @@ def main():
         return
 
     if args.start:
+        from core.single_instance import ensure_single_instance
+        if not ensure_single_instance("ThaiMovieDrama_ReelsBot_PG2"):
+            print("🚨 [SingleInstance] Facebook Reels Auto Bot is already running! Exiting duplicate process...")
+            sys.exit(0)
+
         engine = ReelUploadEngine(config, log_cb=print)
 
         # Start Web Monitor and Cloud Relay Sync (allows remote control & live dashboard on Render)
@@ -130,6 +135,18 @@ def main():
                                 except Exception:
                                     pass
                                 break
+                elif action == "retry_failed":
+                    try:
+                        res = engine.queue_mgr.retry_failed_videos()
+                        print(f"✅ [WebMonitor] Retried failed videos: {res} items reset to pending")
+                    except Exception as ex:
+                        print(f"⚠️ [WebMonitor] Error retrying failed videos: {ex}")
+                elif action == "clear_failed":
+                    try:
+                        res = engine.queue_mgr.clear_failed_history()
+                        print(f"✅ [WebMonitor] Cleared failed history: {res} items cleared")
+                    except Exception as ex:
+                        print(f"⚠️ [WebMonitor] Error clearing failed history: {ex}")
                 elif action == "update_settings":
                     try:
                         curr = load_config()
@@ -141,6 +158,10 @@ def main():
                                   "cta_post_interval_reels"]:
                             if k in payload:
                                 curr[k] = payload[k]
+                        if "caption_template" in payload:
+                            curr["caption_template"] = payload["caption_template"]
+                            for grp in curr.get("page_groups", []):
+                                grp["caption_template"] = payload["caption_template"]
                         if "ai_caption" in payload and isinstance(payload["ai_caption"], dict):
                             curr.setdefault("ai_caption", {}).update(payload["ai_caption"])
 

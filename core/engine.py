@@ -172,28 +172,12 @@ class ReelUploadEngine:
                 if not groups:
                     break
 
-                # 1. ກວດສອບກຸ່ມ Priority (ນ້ອງເຂົ້າຫອມ / priority='immediate') ກ່ອນສະເໝີ
-                priority_group = None
-                for g in groups:
-                    if g.get("priority") == "immediate" or g.get("group_id") == "group_dedicated_1page":
-                        p_fol = g.get("video_folder", self.config.get("video_folder", "./videos"))
-                        p_comp = g.get("completed_folder", self.config.get("completed_folder", "./completed"))
-                        p_pgs = g.get("pages", [])
-                        if self.queue_mgr.get_pending_videos(target_folder=p_fol, completed_folder=p_comp, target_pages=p_pgs):
-                            priority_group = g
-                            break
-
+                # Round-Robin through configured execution groups
                 any_video_processed = False
-
-                if priority_group:
-                    target_candidate_groups = [(priority_group, False)]  # (group, should_advance_round_robin)
-                    self.log(f"⚡ [Priority #1] ພົບ Content ໃໝ່ຂອງເພຈ '{priority_group.get('group_name')}'! ດຶງມາອັບໂຫຼດທັນທີ...")
-                else:
-                    # Round-Robin: ລອງແຕ່ລະກຸ່ມເລີ່ມຈາກ current_group_index
-                    target_candidate_groups = [
-                        (groups[(current_group_index + i) % len(groups)], True)
-                        for i in range(len(groups))
-                    ]
+                target_candidate_groups = [
+                    (groups[(current_group_index + i) % len(groups)], True)
+                    for i in range(len(groups))
+                ]
 
                 for group, should_advance in target_candidate_groups:
                     if not self._is_running:
@@ -342,7 +326,8 @@ class ReelUploadEngine:
                                 video_path,
                                 caption,
                                 schedule_time=sched_dt,
-                                target_page=page_info
+                                target_page=page_info,
+                                title=title
                             )
                         pages_results.append({
                             "page_name": curr_page_name,
@@ -564,15 +549,15 @@ class ReelUploadEngine:
                             pass
                         WEB_STATE.update(status="waiting_delay")
                         if self.config.get("randomize_delay", True):
-                            min_d = float(self.config.get("delay_min_minutes", 60))
-                            max_d = float(self.config.get("delay_max_minutes", 120))
+                            min_d = float(self.config.get("delay_min_minutes", 180))
+                            max_d = float(self.config.get("delay_max_minutes", 240))
                             if min_d > max_d:
                                 min_d, max_d = max_d, min_d
                             delay_mins = round(random.uniform(min_d, max_d), 1)
-                            self.log(f"⏳ ສຸ່ມເວລາພັກລໍຖ້າ (Random Delay): {delay_mins} ນາທີ ກ່ອນເລີ່ມຄລິບຖັດໄປ (ສຸ່ມລະຫວ່າງ {int(min_d)}-{int(max_d)} ນາທີ ເພື່ອຄວາມເປັນທຳມະຊາດ)...")
+                            self.log(f"⏳ ສຸ່ມເວລາພັກລໍຖ້າ (Random Delay): {delay_mins} ນາທີ ({round(delay_mins/60, 1)} ຊົ່ວໂມງ) ກ່ອນເລີ່ມຄລິບຖັດໄປ (ສຸ່ມລະຫວ່າງ {int(min_d)}-{int(max_d)} ນາທີ ຫຼື 3-4 ຊມ ເພື່ອຄວາມເປັນທຳມະຊາດ)...")
                         else:
-                            delay_mins = float(self.config.get("delay_between_posts_minutes", 60))
-                            self.log(f"⏳ ພັກລໍຖ້າ (Delay) {delay_mins} ນາທີ ເພື່ອປ້ອງກັນ Facebook Spam...")
+                            delay_mins = float(self.config.get("delay_between_posts_minutes", 210))
+                            self.log(f"⏳ ພັກລໍຖ້າ (Delay) {delay_mins} ນາທີ ({round(delay_mins/60, 1)} ຊົ່ວໂມງ) ເພື່ອປ້ອງກັນ Facebook Spam...")
 
                         total_seconds = int(delay_mins * 60)
                         target_dt = datetime.now() + timedelta(seconds=total_seconds)

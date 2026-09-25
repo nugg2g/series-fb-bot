@@ -54,3 +54,6 @@ tools/
 .venv
 env/
 venv/
+
+bot_live_state.json
+inspect_ai_label.py
