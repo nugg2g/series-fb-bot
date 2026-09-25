@@ -164,7 +164,13 @@ SERVER_STATE = {
     ],
     "last_sync_time": 0,
     "bot_connected": False,
-    "server_time": ""
+    "server_time": "",
+    "delay_remaining_seconds": 0,
+    "delay_total_seconds": 0,
+    "countdown_str": "",
+    "next_post_time": "",
+    "next_target": "",
+    "config_summary": {}
 }
 
 # Queue of pending commands to be picked up by the local bot
@@ -360,6 +366,7 @@ MOBILE_UI_HTML = """<!DOCTYPE html>
     .status-uploading { background: rgba(56, 189, 248, 0.2); color: var(--accent); border: 1px solid var(--accent); }
     .status-paused { background: rgba(245, 158, 11, 0.2); color: var(--warning); border: 1px solid var(--warning); }
     .status-idle { background: rgba(16, 185, 129, 0.15); color: var(--success); border: 1px solid var(--success); }
+    .status-waiting { background: rgba(168, 85, 247, 0.2); color: #c084fc; border: 1px solid #a855f7; }
 
     .progress-track {
       background: #171a29;
@@ -402,6 +409,26 @@ MOBILE_UI_HTML = """<!DOCTYPE html>
       word-break: break-all;
     }
 
+    /* Countdown Card */
+    .countdown-card {
+      background: linear-gradient(135deg, #091224, #101c38);
+      border: 1.5px solid #0ea5e9;
+      box-shadow: 0 0 24px rgba(14, 165, 233, 0.25);
+      border-radius: 14px;
+      padding: 14px;
+      margin-bottom: 12px;
+    }
+    .countdown-clock {
+      font-family: Consolas, "SF Mono", monospace;
+      font-size: 40px;
+      font-weight: 900;
+      color: #38bdf8;
+      text-shadow: 0 0 16px rgba(56, 189, 248, 0.6);
+      text-align: center;
+      letter-spacing: 2px;
+      margin: 4px 0 8px 0;
+    }
+
     /* Action Buttons */
     .btn-grid {
       display: grid;
@@ -431,11 +458,19 @@ MOBILE_UI_HTML = """<!DOCTYPE html>
     .btn-pause { background: linear-gradient(135deg, #d97706, #b45309); }
     .btn-resume { background: linear-gradient(135deg, #059669, #047857); }
     .btn-stop { background: linear-gradient(135deg, #dc2626, #b91c1c); }
-    .btn-cta {
-      background: linear-gradient(135deg, #7c3aed, #9333ea);
+    .btn-skip {
+      background: linear-gradient(135deg, #0ea5e9, #4f46e5);
+      border: 1px solid rgba(56, 189, 248, 0.6);
       grid-column: span 2;
       padding: 14px;
       font-size: 14px;
+      box-shadow: 0 0 15px rgba(14, 165, 233, 0.3);
+    }
+    .btn-cta {
+      background: linear-gradient(135deg, #7c3aed, #9333ea);
+      grid-column: span 2;
+      padding: 13px;
+      font-size: 13px;
     }
     .btn-secondary {
       background: #1e2438;
@@ -521,10 +556,46 @@ MOBILE_UI_HTML = """<!DOCTYPE html>
       color: white;
     }
 
+    /* Settings Sections */
+    .settings-section {
+      background: #0d101c;
+      border: 1px solid #1e263d;
+      border-radius: 12px;
+      padding: 12px;
+      margin-bottom: 12px;
+    }
+    .section-title {
+      font-size: 12px;
+      font-weight: 800;
+      color: #38bdf8;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      margin-bottom: 10px;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .form-group-switch {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 8px 0;
+      border-bottom: 1px solid #192033;
+      margin-bottom: 8px;
+    }
+    .switch-lbl { font-size: 13px; font-weight: 700; color: #fff; }
+    .switch-sub { font-size: 11px; color: var(--text-muted); margin-top: 2px; }
+    .toggle-switch {
+      width: 44px;
+      height: 24px;
+      accent-color: #38bdf8;
+      cursor: pointer;
+    }
+
     /* Inputs */
     .input-field {
       width: 100%;
-      background: #0d0f17;
+      background: #080a11;
       border: 1px solid #23293e;
       border-radius: 8px;
       padding: 10px 12px;
@@ -532,12 +603,13 @@ MOBILE_UI_HTML = """<!DOCTYPE html>
       font-size: 13px;
       margin-top: 4px;
       outline: none;
+      font-family: inherit;
     }
     .input-field:focus {
       border-color: var(--accent);
     }
     .form-group {
-      margin-bottom: 12px;
+      margin-bottom: 10px;
     }
     .form-lbl {
       font-size: 11px;
@@ -552,7 +624,7 @@ MOBILE_UI_HTML = """<!DOCTYPE html>
       border: 1px solid #1c2133;
       border-radius: 10px;
       padding: 10px;
-      height: 320px;
+      height: 340px;
       overflow-y: auto;
       font-family: Consolas, monospace;
       font-size: 11px;
@@ -651,9 +723,9 @@ MOBILE_UI_HTML = """<!DOCTYPE html>
       <span>⚡ Reels Bot</span> Manager
     </div>
     <div class="top-actions">
-      <div class="conn-badge conn-offline" id="connBadge">
+      <div class="conn-badge conn-online" id="connBadge">
         <div class="pulse-dot"></div>
-        <span id="connStatusText">ກຳລັງເຊື່ອມຕໍ່...</span>
+        <span id="connStatusText">🟢 Bot ອອນລາຍ</span>
       </div>
       <button class="btn-sm btn-secondary" onclick="lockApp()" title="ລັອກລະບົບ">🔒 ລັອກ</button>
     </div>
@@ -664,6 +736,34 @@ MOBILE_UI_HTML = """<!DOCTYPE html>
     <!-- ================== TAB 1: DASHBOARD ================== -->
     <div class="tab-content active" id="tabDashboard">
       
+      <!-- Live Countdown Card (Appears during delays/cooldown) -->
+      <div class="countdown-card" id="countdownCard" style="display: none;">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+          <span style="font-size: 11px; font-weight: 800; color: #38bdf8; text-transform: uppercase;" id="cdBadge">⏳ Cooldown ພັກລໍຖ້າລະຫວ່າງຄລິບ</span>
+          <span style="font-size: 11px; color: #fde047; font-weight: 700;" id="cdNextTime">🕒 ກຳນົດ: --:--:--</span>
+        </div>
+
+        <div class="countdown-clock" id="cdClock">00:00:00</div>
+
+        <div style="font-size: 12px; color: #cbd5e1; text-align: center; margin-bottom: 8px;">
+          🎯 ເປົ້າໝາຍຖັດໄປ: <span style="color: #fde047; font-weight: 800;" id="cdTargetVal">-</span>
+        </div>
+
+        <!-- Cooldown Progress Track -->
+        <div class="progress-track" style="height: 10px; margin: 6px 0; background: #060914;">
+          <div class="progress-fill" id="cdProgressFill" style="background: linear-gradient(90deg, #0ea5e9, #6366f1, #a855f7); width: 0%;"></div>
+        </div>
+        <div style="display: flex; justify-content: space-between; font-size: 10px; color: var(--text-muted); margin-bottom: 10px;">
+          <span>⏳ ເລີ່ມພັກ</span>
+          <span id="cdPercentTxt">0% ຜ່ານໄປ</span>
+          <span>🚀 ໂພສຕໍ່</span>
+        </div>
+
+        <button class="btn btn-skip" onclick="skipDelayAction()">
+          ⚡ ຂ້າມເວລາພັກ / ອັບໂຫຼດຄລິບຖັດໄປທັນທີ (Upload Now)
+        </button>
+      </div>
+
       <!-- Hero Status Card -->
       <div class="card">
         <div class="hero-status-box">
@@ -765,31 +865,142 @@ MOBILE_UI_HTML = """<!DOCTYPE html>
       </div>
     </div>
 
-    <!-- ================== TAB 4: SETTINGS ================== -->
+    <!-- ================== TAB 4: COMPREHENSIVE SETTINGS ================== -->
     <div class="tab-content" id="tabSettings">
       <div class="card">
-        <div class="card-title">⚙️ ຕັ້ງຄ່າ Bot ຜ່ານມືຖື (Remote Config)</div>
+        <div class="card-head">
+          <div class="card-title">⚙️ ສູນກາງຕັ້ງຄ່າ Bot 24/7 (Master Config)</div>
+          <button class="btn-sm btn-secondary" onclick="loadSettingsIntoUI(true)">🔄 ດຶງຄ່າໃໝ່</button>
+        </div>
         <p style="font-size: 11px; color: var(--text-muted); margin-bottom: 12px;">
-          ຄ່າທີ່ບັນທຶກຢູ່ນີ້ ຈະຖືກສົ່ງໄປອັບເດດໃນຄອມພິວເຕີທັນທີ:
+          ຕັ້ງຄ່າລະບົບ Facebook Reels Auto Bot 2 ຢ່າງລະອຽດ ຄ່ານີ້ຈະ Sync ແລະ ມີຜົນທັນທີ:
         </p>
 
-        <div class="form-group">
-          <label class="form-lbl">⏱️ Delay ຕໍ່າສຸດ (ວິນາທີ)</label>
-          <input type="number" class="input-field" id="cfgMinDelay" value="180">
+        <!-- 1. Delay & Timing -->
+        <div class="settings-section">
+          <div class="section-title">⏱️ 1. ເວລາພັກ & ໄລຍະຫ່າງ (Cooldown & Timing)</div>
+          
+          <div class="form-group-switch">
+            <div>
+              <div class="switch-lbl">ສຸ່ມເວລາພັກ (Randomize Delay)</div>
+              <div class="switch-sub">ສຸ່ມລະຫວ່າງ Min - Max ເພື່ອປ້ອງກັນ Facebook Spam</div>
+            </div>
+            <input type="checkbox" id="cfgRandomDelay" class="toggle-switch">
+          </div>
+
+          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px;">
+            <div class="form-group">
+              <label class="form-lbl">Delay ຕໍ່າສຸດ (ນາທີ)</label>
+              <input type="number" class="input-field" id="cfgMinDelay" value="60">
+            </div>
+            <div class="form-group">
+              <label class="form-lbl">Delay ສູງສຸດ (ນາທີ)</label>
+              <input type="number" class="input-field" id="cfgMaxDelay" value="120">
+            </div>
+          </div>
+
+          <div class="form-group">
+            <label class="form-lbl">Delay ຄົງທີ່ (Fixed Delay - ນາທີ ຖ້າບໍ່ສຸ່ມ)</label>
+            <input type="number" class="input-field" id="cfgFixedDelay" value="60">
+          </div>
         </div>
 
-        <div class="form-group">
-          <label class="form-lbl">⏱️ Delay ສູງສຸດ (ວິນາທີ)</label>
-          <input type="number" class="input-field" id="cfgMaxDelay" value="360">
+        <!-- 2. Content & Caption -->
+        <div class="settings-section">
+          <div class="section-title">✍️ 2. ເນື້ອຫາ & ແທມເພຼດ Caption</div>
+
+          <div class="form-group">
+            <label class="form-lbl">ຄຳນຳໜ້າຊື່ເລື່ອງ (Title Prefix)</label>
+            <input type="text" class="input-field" id="cfgTitlePrefix" placeholder="ຕົວຢ່າງ: [เต็มเรื่อง] ">
+          </div>
+
+          <div class="form-group">
+            <label class="form-lbl">ແທມເພຼດ Caption ຫຼັກ (ສາມາດໃຊ້ {title} ແລະ {tags})</label>
+            <textarea class="input-field" id="cfgCaptionTemplate" rows="4" style="resize: vertical; font-size: 12px;"></textarea>
+          </div>
+
+          <div class="form-group">
+            <label class="form-lbl">ແຮຊແທັກ (Hashtag Pool - ຄັ່ນດ້ວຍ comma ຫຼື ຂຶ້ນແຖວໃໝ່)</label>
+            <textarea class="input-field" id="cfgHashtags" rows="3" style="resize: vertical; font-size: 12px;"></textarea>
+          </div>
+
+          <div class="form-group">
+            <label class="form-lbl">ຈຳນວນແຮຊແທັກທີ່ສຸ່ມໃສ່ຕໍ່ຄລິບ (Tags Count)</label>
+            <input type="number" class="input-field" id="cfgTagsCount" value="10">
+          </div>
         </div>
 
-        <div class="form-group">
-          <label class="form-lbl">🎬 ຄຳນຳໜ້າຊື່ເລື່ອງ (Title Prefix)</label>
-          <input type="text" class="input-field" id="cfgTitlePrefix" value="[เต็มเรื่อง] ">
+        <!-- 3. Gemini AI Automation -->
+        <div class="settings-section">
+          <div class="section-title">🤖 3. ລະບົບ Gemini AI Automation</div>
+
+          <div class="form-group-switch">
+            <div>
+              <div class="switch-lbl">ເປີດໃຊ້ງານ Gemini AI Auto Caption</div>
+              <div class="switch-sub">ວິເຄາະຮູບ Cover & ສ້າງ Title/Caption ດຣາມ່າຈີນອັດຕະໂນມັດ</div>
+            </div>
+            <input type="checkbox" id="cfgAiEnabled" class="toggle-switch">
+          </div>
+
+          <div class="form-group">
+            <label class="form-lbl">Gemini Model</label>
+            <select class="input-field" id="cfgAiModel">
+              <option value="gemini-3.5-flash-lite">gemini-3.5-flash-lite (ໄວ & ປະຢັດ)</option>
+              <option value="gemini-2.5-flash">gemini-2.5-flash (ສະຫຼາດ & ແມ່ຍຳ)</option>
+              <option value="gemini-2.0-flash">gemini-2.0-flash</option>
+            </select>
+          </div>
+
+          <div class="form-group">
+            <label class="form-lbl">Gemini API Key(s) (ຄັ່ນດ້ວຍ comma ຖ້າມີຫຼາຍ Key)</label>
+            <input type="password" class="input-field" id="cfgAiApiKey" placeholder="AIzaSy... / AQ....">
+          </div>
+
+          <div class="form-group-switch">
+            <div>
+              <div class="switch-lbl">ຕິດປ້າຍ Meta 'ເນື້ອຫາ AI' (Made with AI)</div>
+              <div class="switch-sub">ຕິ໊ກເລືອກອັດຕະໂນມັດໃນ Facebook Reels Composer</div>
+            </div>
+            <input type="checkbox" id="cfgMarkAi" class="toggle-switch">
+          </div>
         </div>
 
-        <button class="btn btn-start" style="width: 100%; margin-top: 8px;" onclick="saveRemoteSettings()">
-          💾 ບັນທຶກການຕັ້ງຄ່າລົງຄອມພິວເຕີ
+        <!-- 4. Safety & Watcher -->
+        <div class="settings-section">
+          <div class="section-title">🛡️ 4. ຄວາມປອດໄພ & ການເຮັດວຽກ 24/7</div>
+
+          <div class="form-group-switch">
+            <div>
+              <div class="switch-lbl">Strict Page Guard</div>
+              <div class="switch-sub">ກວດສອບຊື່ເພຈເທິງຈໍ 100% ກ່ອນໂພສ (ປ້ອງກັນໂພສຜິດເພຈ)</div>
+            </div>
+            <input type="checkbox" id="cfgStrictGuard" class="toggle-switch">
+          </div>
+
+          <div class="form-group-switch">
+            <div>
+              <div class="switch-lbl">Auto Watch New Files (ວົນລູປ 24/7)</div>
+              <div class="switch-sub">ເມື່ອຄລິບໝົດ ຈະລໍຖ້າໄຟລ໌ໃໝ່ອັດຕະໂນມັດ ໂດຍບໍ່ດັບໂປຣແກຣມ</div>
+            </div>
+            <input type="checkbox" id="cfgAutoWatch" class="toggle-switch">
+          </div>
+
+          <div class="form-group-switch">
+            <div>
+              <div class="switch-lbl">CTA Follower Post (ໂພສຮູບຊວນຕິດຕາມ)</div>
+              <div class="switch-sub">ໂພສຮູບ AI ເຊີນຊວນກົດ Follow ທຸກໆ X ຄລິບ</div>
+            </div>
+            <input type="checkbox" id="cfgCtaEnabled" class="toggle-switch">
+          </div>
+
+          <div class="form-group">
+            <label class="form-lbl">ໄລຍະຫ່າງ CTA (ໂພສທຸກໆຈັກຄລິບ)</label>
+            <input type="number" class="input-field" id="cfgCtaInterval" value="5">
+          </div>
+        </div>
+
+        <button class="btn btn-start" style="width: 100%; padding: 14px; font-size: 14px;" onclick="saveComprehensiveSettings()">
+          💾 ບັນທຶກການຕັ້ງຄ່າທັງໝົດລົງ Bot (Save & Apply Instantly)
         </button>
       </div>
     </div>
@@ -854,6 +1065,8 @@ MOBILE_UI_HTML = """<!DOCTYPE html>
   <script>
     let gAuthToken = localStorage.getItem('reels_auth_token') || '';
     let currPinInput = '';
+    let gLastData = null;
+    let gSettingsLoaded = false;
 
     function getAuthHeaders() {
       const h = { 'Content-Type': 'application/json' };
@@ -939,18 +1152,28 @@ MOBILE_UI_HTML = """<!DOCTYPE html>
       const t = document.getElementById(tabId);
       if (t) t.classList.add('active');
       if (el) el.classList.add('active');
+      if (tabId === 'tabSettings' && gLastData && gLastData.config_summary && !gSettingsLoaded) {
+        loadSettingsIntoUI(false);
+      }
+    }
+
+    function formatSeconds(sec) {
+      sec = Math.max(0, parseInt(sec) || 0);
+      const h = Math.floor(sec / 3600);
+      const m = Math.floor((sec % 3600) / 60);
+      const s = sec % 60;
+      const pad = n => String(n).padStart(2, '0');
+      return h > 0 ? `${pad(h)}:${pad(m)}:${pad(s)}` : `${pad(m)}:${pad(s)}`;
     }
 
     async function fetchState() {
       if (!gAuthToken) return;
       try {
         const res = await fetch('/api/state', { headers: getAuthHeaders() });
-        if (res.status === 401) {
-          lockApp();
-          return;
-        }
+        if (res.status === 401) { lockApp(); return; }
         if (!res.ok) throw new Error('HTTP ' + res.status);
         const data = await res.json();
+        gLastData = data;
 
         // Connection Badge
         const cBadge = document.getElementById('connBadge');
@@ -960,7 +1183,7 @@ MOBILE_UI_HTML = """<!DOCTYPE html>
           cText.innerText = '🟢 Bot ອອນລາຍ';
         } else {
           cBadge.className = 'conn-badge conn-offline';
-          cText.innerText = '🔴 Bot ອອບລາຍ';
+          cText.innerText = '🔴 Bot ຂາດການເຊື່ອມຕໍ່';
         }
 
         // Server Time
@@ -972,7 +1195,10 @@ MOBILE_UI_HTML = """<!DOCTYPE html>
 
         // Status Pill
         const heroPill = document.getElementById('heroPill');
-        if (data.status === 'uploading' || data.status === 'running') {
+        if (['waiting_delay', 'waiting_page_delay', 'waiting_retry_delay'].includes(data.status)) {
+          heroPill.className = 'status-pill status-waiting';
+          heroPill.innerText = '⏳ ກຳລັງພັກລໍຖ້າ';
+        } else if (data.status === 'uploading' || data.status === 'running') {
           heroPill.className = 'status-pill status-uploading';
           heroPill.innerText = '🚀 ກຳລັງອັບໂຫຼດ';
         } else if (data.status === 'paused') {
@@ -981,6 +1207,32 @@ MOBILE_UI_HTML = """<!DOCTYPE html>
         } else {
           heroPill.className = 'status-pill status-idle';
           heroPill.innerText = '⏳ ພ້ອມເຮັດວຽກ';
+        }
+
+        // --- Live Countdown Display ---
+        const cdCard = document.getElementById('countdownCard');
+        const isWaiting = ['waiting_delay', 'waiting_page_delay', 'waiting_retry_delay'].includes(data.status);
+        if (isWaiting && (data.delay_remaining_seconds > 0 || data.countdown_str)) {
+          cdCard.style.display = 'block';
+          document.getElementById('cdClock').innerText = data.countdown_str || formatSeconds(data.delay_remaining_seconds);
+          document.getElementById('cdNextTime').innerText = data.next_post_time ? '🕒 ກຳນົດ: ' + data.next_post_time : '';
+          document.getElementById('cdTargetVal').innerText = data.next_target || data.page_name || 'ຄລິບຖັດໄປ';
+          
+          if (data.status === 'waiting_page_delay') {
+            document.getElementById('cdBadge').innerText = '⏳ ພັກລະຫວ່າງ Page (Anti-Spam)';
+          } else if (data.status === 'waiting_retry_delay') {
+            document.getElementById('cdBadge').innerText = '🔄 ພັກກ່ອນ Retry Page ທີ່ລົ້ມເຫຼວ';
+          } else {
+            document.getElementById('cdBadge').innerText = '⏳ ນັບຖອຍຫຼັງໂພສຖັດໄປ (Cooldown)';
+          }
+
+          const total = data.delay_total_seconds || 1;
+          const rem = data.delay_remaining_seconds || 0;
+          const elapsedPct = Math.max(0, Math.min(100, Math.round(((total - rem) / total) * 100)));
+          document.getElementById('cdProgressFill').style.width = elapsedPct + '%';
+          document.getElementById('cdPercentTxt').innerText = elapsedPct + '% ຜ່ານໄປ';
+        } else {
+          cdCard.style.display = 'none';
         }
 
         // Progress
@@ -1010,7 +1262,7 @@ MOBILE_UI_HTML = """<!DOCTYPE html>
           bPause.style.display = 'none';
           bResume.style.display = 'flex';
           bStop.style.display = 'flex';
-        } else if (data.status === 'uploading' || data.status === 'running') {
+        } else if (data.status === 'uploading' || data.status === 'running' || isWaiting) {
           bStart.style.display = 'none';
           bPause.style.display = 'flex';
           bResume.style.display = 'none';
@@ -1032,12 +1284,27 @@ MOBILE_UI_HTML = """<!DOCTYPE html>
         renderLogs(data.recent_logs || []);
 
       } catch (e) {
-        const cBadge = document.getElementById('connBadge');
-        const cText = document.getElementById('connStatusText');
-        cBadge.className = 'conn-badge conn-offline';
-        cText.innerText = '⚠️ ບໍ່ສາມາດເຊື່ອມຕໍ່ Server';
+        console.error("Fetch error:", e);
       }
     }
+
+    // Local 1-second countdown ticker for smooth UI
+    setInterval(() => {
+      if (gLastData && ['waiting_delay', 'waiting_page_delay', 'waiting_retry_delay'].includes(gLastData.status)) {
+        if (gLastData.delay_remaining_seconds > 0) {
+          gLastData.delay_remaining_seconds--;
+          const clk = document.getElementById('cdClock');
+          if (clk) clk.innerText = formatSeconds(gLastData.delay_remaining_seconds);
+          const total = gLastData.delay_total_seconds || 1;
+          const rem = gLastData.delay_remaining_seconds;
+          const elapsedPct = Math.max(0, Math.min(100, Math.round(((total - rem) / total) * 100)));
+          const fill = document.getElementById('cdProgressFill');
+          if (fill) fill.style.width = elapsedPct + '%';
+          const ptxt = document.getElementById('cdPercentTxt');
+          if (ptxt) ptxt.innerText = elapsedPct + '% ຜ່ານໄປ';
+        }
+      }
+    }, 1000);
 
     function renderPagesList(groups, activePageId) {
       const container = document.getElementById('pagesListContainer');
@@ -1114,11 +1381,12 @@ MOBILE_UI_HTML = """<!DOCTYPE html>
       document.getElementById('termBox').innerHTML = '<div class="term-line">🧹 ລ້າງບັນທຶກໜ້າຈໍແລ້ວ</div>';
     }
 
-    async function triggerAction(action) {
+    async function triggerAction(action, payload = null) {
       try {
         const res = await fetch('/api/action/' + action, {
           method: 'POST',
-          headers: getAuthHeaders()
+          headers: getAuthHeaders(),
+          body: payload ? JSON.stringify(payload) : null
         });
         if (res.status === 401) { lockApp(); return; }
         const json = await res.json();
@@ -1126,6 +1394,12 @@ MOBILE_UI_HTML = """<!DOCTYPE html>
         fetchState();
       } catch (e) {
         alert('ຜິດພາດ: ' + e);
+      }
+    }
+
+    async function skipDelayAction() {
+      if (confirm('⚡ ທ່ານຕ້ອງການຂ້າມເວລາພັກລໍຖ້າ ແລະ ອັບໂຫຼດຄລິບຖັດໄປທັນທີເລີຍຫຼືບໍ່?')) {
+        await triggerAction('skip_delay');
       }
     }
 
@@ -1193,20 +1467,71 @@ MOBILE_UI_HTML = """<!DOCTYPE html>
       }
     }
 
-    async function saveRemoteSettings() {
-      const minD = document.getElementById('cfgMinDelay').value;
-      const maxD = document.getElementById('cfgMaxDelay').value;
-      const prefix = document.getElementById('cfgTitlePrefix').value;
+    function loadSettingsIntoUI(force = false) {
+      if (!gLastData || !gLastData.config_summary) return;
+      if (gSettingsLoaded && !force) return;
+      const c = gLastData.config_summary;
+
+      document.getElementById('cfgRandomDelay').checked = !!c.randomize_delay;
+      document.getElementById('cfgMinDelay').value = c.delay_min_minutes || 60;
+      document.getElementById('cfgMaxDelay').value = c.delay_max_minutes || 120;
+      document.getElementById('cfgFixedDelay').value = c.delay_between_posts_minutes || 60;
+
+      document.getElementById('cfgTitlePrefix').value = c.title_prefix || '';
+      document.getElementById('cfgCaptionTemplate').value = c.caption_template || '';
+      document.getElementById('cfgHashtags').value = Array.isArray(c.hashtag_pool) ? c.hashtag_pool.join('
+') : '';
+      document.getElementById('cfgTagsCount').value = c.tags_count || 10;
+
+      document.getElementById('cfgAiEnabled').checked = !!c.ai_caption_enabled;
+      if (c.ai_caption_model) document.getElementById('cfgAiModel').value = c.ai_caption_model;
+      document.getElementById('cfgAiApiKey').value = c.ai_caption_api_key || '';
+      document.getElementById('cfgMarkAi').checked = !!c.mark_as_ai_content;
+
+      document.getElementById('cfgStrictGuard').checked = !!c.strict_page_guard;
+      document.getElementById('cfgAutoWatch').checked = !!c.auto_watch_new_files;
+      document.getElementById('cfgCtaEnabled').checked = !!c.cta_post_enabled;
+      document.getElementById('cfgCtaInterval').value = c.cta_post_interval_reels || 5;
+
+      gSettingsLoaded = true;
+      if (force) alert('ດຶງຄ່າການຕັ້ງຄ່າປັດຈຸບັນມາໃສ່ຟອມແລ້ວ');
+    }
+
+    async function saveComprehensiveSettings() {
+      const hashtagsRaw = document.getElementById('cfgHashtags').value;
+      const tagsList = hashtagsRaw.split(/[
+,]+/).map(t => t.trim()).filter(Boolean);
+
+      const payload = {
+        randomize_delay: document.getElementById('cfgRandomDelay').checked,
+        delay_min_minutes: parseFloat(document.getElementById('cfgMinDelay').value) || 60,
+        delay_max_minutes: parseFloat(document.getElementById('cfgMaxDelay').value) || 120,
+        delay_between_posts_minutes: parseFloat(document.getElementById('cfgFixedDelay').value) || 60,
+        title_prefix: document.getElementById('cfgTitlePrefix').value,
+        caption_template: document.getElementById('cfgCaptionTemplate').value,
+        tags_count: parseInt(document.getElementById('cfgTagsCount').value) || 10,
+        hashtag_pool: tagsList,
+        ai_caption: {
+          enabled: document.getElementById('cfgAiEnabled').checked,
+          model: document.getElementById('cfgAiModel').value,
+          api_key: document.getElementById('cfgAiApiKey').value.trim()
+        },
+        mark_as_ai_content: document.getElementById('cfgMarkAi').checked,
+        strict_page_guard: document.getElementById('cfgStrictGuard').checked,
+        auto_watch_new_files: document.getElementById('cfgAutoWatch').checked,
+        cta_post_enabled: document.getElementById('cfgCtaEnabled').checked,
+        cta_post_interval_reels: parseInt(document.getElementById('cfgCtaInterval').value) || 5
+      };
 
       try {
         const res = await fetch('/api/action/update_settings', {
           method: 'POST',
           headers: getAuthHeaders(),
-          body: JSON.stringify({ min_delay: parseInt(minD), max_delay: parseInt(maxD), title_prefix: prefix })
+          body: JSON.stringify(payload)
         });
         if (res.status === 401) { lockApp(); return; }
         const json = await res.json();
-        alert(json.message || 'ບັນທຶກການຕັ້ງຄ່າສຳເລັດ');
+        alert(json.message || '💾 ບັນທຶກການຕັ້ງຄ່າລົງ Bot ສຳເລັດແລ້ວ!');
         fetchState();
       } catch (e) {
         alert('ຜິດພາດ: ' + e);
@@ -1220,7 +1545,7 @@ MOBILE_UI_HTML = """<!DOCTYPE html>
     }
 
     function escapeJs(t) {
-      return (t || '').replace(/'/g, "\\'");
+      return (t || '').replace(/'/g, "\'");
     }
 
     // Initialize Auth and Poller
@@ -1228,8 +1553,7 @@ MOBILE_UI_HTML = """<!DOCTYPE html>
     setInterval(fetchState, 2500);
   </script>
 </body>
-</html>
-"""
+</html>"""
 
 @app.route("/")
 @app.route("/dashboard")
@@ -1322,17 +1646,8 @@ def api_action(action_name: str):
         payload["page_id"] = clean_id
 
     elif action_clean == "update_settings":
-        try:
-            min_d = max(10, min(7200, int(payload.get("min_delay", 180))))
-            max_d = max(10, min(7200, int(payload.get("max_delay", 360))))
-            if min_d > max_d:
-                min_d, max_d = max_d, min_d
-            payload["min_delay"] = min_d
-            payload["max_delay"] = max_d
-            if "title_prefix" in payload:
-                payload["title_prefix"] = str(payload["title_prefix"])[:50]
-        except Exception:
-            return jsonify({"success": False, "message": "❌ ຄ່າ Delay ບໍ່ຖືກຕ້ອງ"}), 400
+        # Pass comprehensive settings payload
+        pass
 
     cmd = {
         "id": f"cmd_{int(time.time()*1000)}",
@@ -1385,7 +1700,9 @@ def api_sync():
 
     for k in ["status", "progress_pct", "progress_text", "current_video", 
               "page_name", "page_id", "is_safe", "page_groups", "queue_stats", 
-              "queue_items", "recent_logs"]:
+              "queue_items", "recent_logs", "delay_remaining_seconds", 
+              "delay_total_seconds", "countdown_str", "next_post_time", 
+              "next_target", "config_summary"]:
         if k in data:
             SERVER_STATE[k] = data[k]
 

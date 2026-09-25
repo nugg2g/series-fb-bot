@@ -32,6 +32,7 @@ class ReelUploadEngine:
 
         self._is_running = False
         self._is_paused = False
+        self._skip_delay = False
         self._thread: Optional[threading.Thread] = None
 
     def log(self, msg: str):
@@ -66,20 +67,40 @@ class ReelUploadEngine:
             return
         self._is_running = True
         self._is_paused = False
+        self._skip_delay = False
         WEB_STATE.update(status="uploading")
         self._thread = threading.Thread(target=self._run_loop, daemon=True)
         self._thread.start()
 
     def pause(self):
-        self._is_paused = not self._is_paused
-        status_text = "⏸️ พักการทำงานชั่วคราว (Paused)" if self._is_paused else "▶️ ดำเนินการต่อ (Resumed)"
-        self.log(status_text)
-        WEB_STATE.update(status="paused" if self._is_paused else "uploading")
+        self._is_paused = True
+        self.log("⏸️ ພັກການເຮັດວຽກຊົ່ວຄາວ (Paused)")
+        WEB_STATE.update(status="paused", progress_text="⏸️ ພັກການເຮັດວຽກຊົ່ວຄາວ (Paused)")
+
+    def resume(self):
+        self._is_paused = False
+        self.log("▶️ ສືບຕໍ່ເຮັດວຽກ (Resumed)")
+        WEB_STATE.update(status="uploading", progress_text="▶️ ສືບຕໍ່ການເຮັດວຽກ...")
+
+    def skip_delay(self):
+        self._skip_delay = True
+        self._is_paused = False
+        self.log("⚡ ໄດ້ຮັບຄຳສັ່ງ: ຂ້າມເວລາພັກລໍຖ້າ (Skip Delay) -> ກຳລັງເລີ່ມຂັ້ນຕອນຕໍ່ໄປທັນທີ!")
+
+    def apply_config(self, new_config: dict):
+        try:
+            self.config.update(new_config)
+            self.queue_mgr.config = self.config
+            self.caption_gen.config = self.config
+            self.log("⚙️ ອັບເດດການຕັ້ງຄ່າ Bot ຮຽບຮ້ອຍ (Config applied dynamically)")
+        except Exception as e:
+            self.log(f"⚠️ Error applying dynamic config: {e}")
 
     def stop(self):
         self._is_running = False
-        self.log("🛑 หยุดการทำงาน (Stopped)")
-        WEB_STATE.update(status="idle", progress_pct=0, progress_text="ຢຸດການເຮັດວຽກ (Stopped)")
+        self._skip_delay = True
+        self.log("🛑 ຢຸດການເຮັດວຽກ (Stopped)")
+        WEB_STATE.update(status="idle", progress_pct=0, progress_text="ຢຸດການເຮັດວຽກ (Stopped)", delay_remaining_seconds=0, countdown_str="")
         try:
             self.browser_mgr.close()
         except Exception:
@@ -345,19 +366,40 @@ class ReelUploadEngine:
                             next_page = g_pages[p_idx] if p_idx < len(g_pages) else {}
                             next_name = next_page.get("page_name", "Page ຖັດໄປ")
                             self.log(f"⏳ ພັກລໍຖ້າ {page_delay_mins} ນາທີ ກ່ອນອັບໂຫຼດໄປຍັງ '{next_name}' (ສຸ່ມ 3-10 ນາທີ ເພື່ອປ້ອງກັນ Spam)...")
-                            WEB_STATE.update(status="waiting_page_delay", progress_text=f"ລໍຖ້າ {page_delay_mins} ນາທີ ກ່ອນ Page ຖັດໄປ")
+                            target_page_dt = datetime.now() + timedelta(seconds=page_delay_secs)
+                            target_page_str = target_page_dt.strftime("%H:%M:%S")
+
                             for _s in range(page_delay_secs):
                                 if not self._is_running:
                                     break
+                                if self._skip_delay:
+                                    self._skip_delay = False
+                                    self.log(f"⚡ ຂ້າມເວລາພັກລະຫວ່າງ Page! ກຳລັງເລີ່ມອັບໂຫຼດໄປຍັງ '{next_name}' ທັນທີ...")
+                                    break
                                 while self._is_paused:
                                     time.sleep(1)
-                                    if not self._is_running:
+                                    if not self._is_running or self._skip_delay:
                                         break
+
                                 remaining = page_delay_secs - _s
+                                rem_m = remaining // 60
+                                rem_s = remaining % 60
+                                cd_str = f"{rem_m:02d}:{rem_s:02d}"
+
                                 if remaining % 60 == 0 and remaining > 0:
-                                    self.log(f"⏳ ເຫຼືອອີກ {remaining // 60} ນາທີ ກ່ອນ Page ຖັດໄປ...")
+                                    self.log(f"⏳ ເຫຼືອອີກ {rem_m} ນາທີ ກ່ອນ Page ຖັດໄປ...")
+
+                                WEB_STATE.update(
+                                    status="waiting_page_delay",
+                                    progress_text=f"ພັກລະຫວ່າງ Page: {cd_str} (ເປົ້າໝາຍ: {next_name})",
+                                    delay_remaining_seconds=remaining,
+                                    delay_total_seconds=page_delay_secs,
+                                    countdown_str=cd_str,
+                                    next_post_time=target_page_str,
+                                    next_target=next_name
+                                )
                                 time.sleep(1)
-                            WEB_STATE.update(status="uploading")
+                            WEB_STATE.update(status="uploading", delay_remaining_seconds=0, countdown_str="")
 
                     succeeded_pages = [p for p in pages_results if p.get("success")]
                     failed_pages = [p for p in pages_results if not p.get("success")]
@@ -393,11 +435,39 @@ class ReelUploadEngine:
                         # Retry ສະເພາະ Page ທີ່ລົ້ມເຫຼວ (ລອງອີກ 1 ຄັ້ງ)
                         self.log(f"\n🔄 ກຳລັງ Retry ສະເພາະ {len(failed_pages)} Page ທີ່ລົ້ມເຫຼວ...")
                         retry_delay = round(random.uniform(2, 5), 1)
+                        retry_secs = int(retry_delay * 60)
                         self.log(f"⏳ ພັກ {retry_delay} ນາທີ ກ່ອນ Retry...")
-                        for _s in range(int(retry_delay * 60)):
+                        target_retry_dt = datetime.now() + timedelta(seconds=retry_secs)
+                        target_retry_str = target_retry_dt.strftime("%H:%M:%S")
+
+                        for _s in range(retry_secs):
                             if not self._is_running:
                                 break
+                            if self._skip_delay:
+                                self._skip_delay = False
+                                self.log("⚡ ຂ້າມເວລາພັກ Retry! ກຳລັງລອງອັບໂຫຼດໃໝ່ທັນທີ...")
+                                break
+                            while self._is_paused:
+                                time.sleep(1)
+                                if not self._is_running or self._skip_delay:
+                                    break
+
+                            rem_r = retry_secs - _s
+                            rem_r_m = rem_r // 60
+                            rem_r_s = rem_r % 60
+                            cd_r_str = f"{rem_r_m:02d}:{rem_r_s:02d}"
+
+                            WEB_STATE.update(
+                                status="waiting_retry_delay",
+                                progress_text=f"ພັກກ່ອນ Retry: {cd_r_str} (ຮອດ {target_retry_str})",
+                                delay_remaining_seconds=rem_r,
+                                delay_total_seconds=retry_secs,
+                                countdown_str=cd_r_str,
+                                next_post_time=target_retry_str,
+                                next_target=failed_pages[0].get("page_name", "") if failed_pages else ""
+                            )
                             time.sleep(1)
+                        WEB_STATE.update(status="uploading", delay_remaining_seconds=0, countdown_str="")
 
                         retry_results = []
                         for fp in failed_pages:
@@ -505,25 +575,48 @@ class ReelUploadEngine:
                             self.log(f"⏳ ພັກລໍຖ້າ (Delay) {delay_mins} ນາທີ ເພື່ອປ້ອງກັນ Facebook Spam...")
 
                         total_seconds = int(delay_mins * 60)
+                        target_dt = datetime.now() + timedelta(seconds=total_seconds)
+                        target_time_str = target_dt.strftime("%H:%M:%S")
+
+                        next_vids = self.queue_mgr.get_pending_videos()
+                        next_vid_name = os.path.basename(next_vids[0]) if next_vids else "ຄລິບຖັດໄປ"
+
                         for s in range(total_seconds):
                             if not self._is_running:
                                 break
+                            if self._skip_delay:
+                                self._skip_delay = False
+                                self.log("⚡ ໄດ້ຮັບຄຳສັ່ງ: ຂ້າມເວລາພັກລໍຖ້າ (Skip Delay) -> ເລີ່ມຕົ້ນອັບໂຫຼດຄລິບຖັດໄປທັນທີ!")
+                                break
                             while self._is_paused:
                                 time.sleep(1)
-                                if not self._is_running:
+                                if not self._is_running or self._skip_delay:
                                     break
 
                             rem = total_seconds - s
-                            if s % 5 == 0 or rem <= 5:
-                                rem_mins = rem // 60
-                                rem_secs = rem % 60
-                                WEB_STATE.update(
-                                    status="waiting_delay",
-                                    progress_text=f"ພັກລໍຖ້າໂພສຖັດໄປ: {rem_mins:02d}:{rem_secs:02d} ນາທີ",
-                                    delay_remaining_seconds=rem
-                                )
+                            rem_hrs = rem // 3600
+                            rem_mins = (rem % 3600) // 60
+                            rem_secs = rem % 60
+
+                            if rem_hrs > 0:
+                                countdown_str = f"{rem_hrs:02d}:{rem_mins:02d}:{rem_secs:02d}"
+                                progress_text = f"ພັກລໍຖ້າໂພສຖັດໄປ: {rem_hrs}ຊມ {rem_mins}ນ {rem_secs}ວ (ຮອດ {target_time_str})"
+                            else:
+                                countdown_str = f"{rem_mins:02d}:{rem_secs:02d}"
+                                progress_text = f"ພັກລໍຖ້າໂພສຖັດໄປ: {rem_mins}ນ {rem_secs}ວ (ຮອດ {target_time_str})"
+
+                            WEB_STATE.update(
+                                status="waiting_delay",
+                                progress_text=progress_text,
+                                delay_remaining_seconds=rem,
+                                delay_total_seconds=total_seconds,
+                                countdown_str=countdown_str,
+                                next_post_time=target_time_str,
+                                next_target=next_vid_name
+                            )
 
                             time.sleep(1)
+                        WEB_STATE.update(status="uploading", delay_remaining_seconds=0, countdown_str="")
 
                     # Break inner tried loop - go back to main while loop
                     break

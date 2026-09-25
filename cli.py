@@ -3,6 +3,7 @@ import sys
 import argparse
 import json
 import time
+import threading
 
 if sys.platform == "win32":
     try:
@@ -86,12 +87,71 @@ def main():
         # Start Web Monitor and Cloud Relay Sync (allows remote control & live dashboard on Render)
         if config.get("web_monitor", {}).get("enabled", True):
             def handle_remote_action(action: str, payload: dict = None):
+                payload = payload or {}
                 if action == "pause":
                     engine.pause()
                 elif action == "resume":
-                    engine.pause()
+                    engine.resume()
+                elif action in ["skip_delay", "upload_now", "skip_cooldown"]:
+                    engine.skip_delay()
                 elif action == "stop":
                     engine.stop()
+                elif action == "post_cta":
+                    try:
+                        # trigger CTA in background
+                        threading.Thread(target=engine.post_follower_cta, daemon=True).start()
+                    except Exception as ex:
+                        print(f"⚠️ [WebMonitor] Error running CTA: {ex}")
+                elif action == "switch_page":
+                    p_id = str(payload.get("page_id", "")).strip()
+                    p_name = payload.get("page_name", "")
+                    if p_id:
+                        config["page_id"] = p_id
+                        config["page_name"] = p_name
+                        engine.apply_config(config)
+                        try:
+                            with open(CONFIG_PATH, "w", encoding="utf-8") as f:
+                                json.dump(config, f, ensure_ascii=False, indent=2)
+                        except Exception:
+                            pass
+                elif action == "update_page_id":
+                    g_id = payload.get("group_id")
+                    p_idx = payload.get("page_index")
+                    new_id = str(payload.get("page_id", "")).strip()
+                    for grp in config.get("page_groups", []):
+                        if grp.get("group_id") == g_id:
+                            pages = grp.get("pages", [])
+                            if 0 <= p_idx < len(pages):
+                                pages[p_idx]["page_id"] = new_id
+                                engine.apply_config(config)
+                                try:
+                                    with open(CONFIG_PATH, "w", encoding="utf-8") as f:
+                                        json.dump(config, f, ensure_ascii=False, indent=2)
+                                except Exception:
+                                    pass
+                                break
+                elif action == "update_settings":
+                    try:
+                        curr = load_config()
+                        # Apply fields from payload
+                        for k in ["delay_min_minutes", "delay_max_minutes", "randomize_delay",
+                                  "delay_between_posts_minutes", "title_prefix", "caption_template",
+                                  "tags_count", "hashtag_pool", "mark_as_ai_content",
+                                  "strict_page_guard", "auto_watch_new_files", "cta_post_enabled",
+                                  "cta_post_interval_reels"]:
+                            if k in payload:
+                                curr[k] = payload[k]
+                        if "ai_caption" in payload and isinstance(payload["ai_caption"], dict):
+                            curr.setdefault("ai_caption", {}).update(payload["ai_caption"])
+
+                        with open(CONFIG_PATH, "w", encoding="utf-8") as f:
+                            json.dump(curr, f, ensure_ascii=False, indent=2)
+                        config.update(curr)
+                        engine.apply_config(curr)
+                        print("✅ [WebMonitor] Updated and dynamically applied new settings to running bot!")
+                    except Exception as ex:
+                        print(f"⚠️ [WebMonitor] Error updating settings: {ex}")
+
             try:
                 start_web_monitor(config, action_callback=handle_remote_action)
             except Exception as e:
