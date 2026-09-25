@@ -615,9 +615,13 @@ class CaptionGenerator:
         if not keys:
             return None
 
-        from google import genai
-        from google.genai import types
-        from PIL import Image
+        try:
+            from google import genai
+            from google.genai import types
+            from PIL import Image
+        except (ImportError, Exception) as e:
+            print(f"[CaptionGenerator] ⚠️ Gemini SDK / PIL unavailable ({e}) -> Falling back to curated title pool.")
+            return None
 
         image_obj = None
         if cover_path and os.path.exists(cover_path):

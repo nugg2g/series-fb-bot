@@ -22,7 +22,7 @@ import hashlib
 import hmac
 import re
 from datetime import datetime
-from typing import Dict, Any, Optional, Callable, List
+from typing import Dict, Any, Optional, Callable, List, Tuple
 import requests
 from flask import Flask, jsonify, request, Response, render_template_string
 

@@ -4,7 +4,7 @@ import random
 import glob
 import threading
 from datetime import datetime, timedelta
-from typing import Dict, Any, Callable, Optional
+from typing import Dict, Any, Callable, Optional, List
 
 from core.queue_manager import QueueManager
 from core.caption_generator import CaptionGenerator
@@ -293,6 +293,10 @@ class ReelUploadEngine:
                     # Upload only to pages that don't have this video yet
                     pages_results = list(pages_done)  # Keep already-done pages in results
 
+                    # Ensure active browser page before starting page uploads (re-opens after delay)
+                    fresh_page = self.browser_mgr.get_active_page()
+                    uploader.page = fresh_page
+
                     for p_idx, page_info in enumerate(pages_todo, start=1):
                         curr_page_name = page_info.get("page_name", "")
                         curr_page_id = str(page_info.get("page_id", ""))
@@ -482,6 +486,12 @@ class ReelUploadEngine:
 
                     # Delay before next post (with random jitter)
                     if self._is_running:
+                        # RAM Optimization: Close Edge browser during long delay (60-120 min) to free ~1.2 GB RAM
+                        try:
+                            self.browser_mgr.close()
+                            self.log("💤 [RAM Saver] ປິດ Browser ຊົ່ວຄາວໃນຊ່ວງພັກລໍຖ້າ (ຄືນ RAM 1.2 GB ໃຫ້ເຄື່ອງ)...")
+                        except Exception:
+                            pass
                         WEB_STATE.update(status="waiting_delay")
                         if self.config.get("randomize_delay", True):
                             min_d = float(self.config.get("delay_min_minutes", 60))

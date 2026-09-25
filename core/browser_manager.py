@@ -1,4 +1,5 @@
 import os
+import sys
 import time
 from typing import Dict, Any, Optional
 from playwright.sync_api import sync_playwright, BrowserContext, Page, Playwright
@@ -28,26 +29,27 @@ class BrowserManager:
 
     def _cleanup_stale_locks(self):
         """Removes orphaned lockfiles and kills background processes locking this profile directory"""
-        try:
-            import subprocess
-            cmd = 'Get-CimInstance Win32_Process | Where-Object { $_.Name -in @("msedge.exe", "chrome.exe") } | Select-Object ProcessId, CommandLine | ConvertTo-Json'
-            p = subprocess.Popen(['powershell', '-NoProfile', '-Command', cmd], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-            out, _ = p.communicate()
-            if out:
-                import json
-                items = json.loads(out.decode('utf-8', errors='ignore'))
-                if isinstance(items, dict): items = [items]
-                norm_dir = os.path.normpath(self.profile_dir).lower()
-                for it in items:
-                    cl = str(it.get('CommandLine', '')).lower()
-                    if norm_dir in cl:
-                        pid = it.get('ProcessId')
-                        try:
-                            subprocess.run(['taskkill', '/F', '/PID', str(pid)], capture_output=True)
-                        except Exception:
-                            pass
-        except Exception:
-            pass
+        if sys.platform == "win32":
+            try:
+                import subprocess
+                cmd = 'Get-CimInstance Win32_Process | Where-Object { $_.Name -in @("msedge.exe", "chrome.exe") } | Select-Object ProcessId, CommandLine | ConvertTo-Json'
+                p = subprocess.Popen(['powershell', '-NoProfile', '-Command', cmd], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+                out, _ = p.communicate()
+                if out:
+                    import json
+                    items = json.loads(out.decode('utf-8', errors='ignore'))
+                    if isinstance(items, dict): items = [items]
+                    norm_dir = os.path.normpath(self.profile_dir).lower()
+                    for it in items:
+                        cl = str(it.get('CommandLine', '')).lower()
+                        if norm_dir in cl:
+                            pid = it.get('ProcessId')
+                            try:
+                                subprocess.run(['taskkill', '/F', '/PID', str(pid)], capture_output=True)
+                            except Exception:
+                                pass
+            except Exception:
+                pass
 
         for lock in ['lockfile', 'SingletonLock', 'SingletonCookie', 'SingletonSocket']:
             lp = os.path.join(self.profile_dir, lock)
@@ -58,10 +60,11 @@ class BrowserManager:
                     pass
 
     def get_active_page(self, force_headed: bool = False) -> Page:
-        """Returns a valid, open Page. Re-launches if context or page was closed."""
+        """Returns a valid, open Page. Re-launches if context or page was closed or disconnected."""
         try:
             if self.page and not self.page.is_closed():
-                _ = self.page.url
+                # Actively verify connection is alive (catches dead/closed socket)
+                self.page.evaluate("1 + 1")
                 return self.page
         except Exception:
             pass
@@ -71,6 +74,7 @@ class BrowserManager:
                 for p in self.context.pages:
                     try:
                         if not p.is_closed():
+                            p.evaluate("1 + 1")
                             self.page = p
                             return self.page
                     except Exception:
@@ -87,7 +91,7 @@ class BrowserManager:
         """Launches the persistent browser context and returns the main page."""
         try:
             if self.page and not self.page.is_closed():
-                _ = self.page.url
+                self.page.evaluate("1 + 1")
                 return self.page
         except Exception:
             pass
@@ -104,7 +108,10 @@ class BrowserManager:
             "--disable-infobars",
             "--start-maximized",
             "--disable-background-mode",
-            "--disable-background-networking"
+            "--disable-background-networking",
+            "--js-flags=--max-old-space-size=512",
+            "--disable-dev-shm-usage",
+            "--disable-renderer-backgrounding"
         ]
 
         # Browser channel selection: msedge (Microsoft Edge), chrome (Google Chrome), or default chromium
@@ -115,19 +122,23 @@ class BrowserManager:
             "AppleWebKit/537.36 (KHTML, like Gecko) "
             "Chrome/131.0.0.0 Safari/537.36"
         )
-        if b_type in ["msedge", "edge", "microsoft-edge", "microsoft edge"]:
-            channel = "msedge"
-            user_agent = (
-                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-                "AppleWebKit/537.36 (KHTML, like Gecko) "
-                "Chrome/131.0.0.0 Safari/537.36 Edg/131.0.0.0"
-            )
-            print("[BrowserManager] Using Microsoft Edge browser channel.")
-        elif b_type in ["chrome", "google-chrome", "google chrome"]:
-            channel = "chrome"
-            print("[BrowserManager] Using Google Chrome browser channel.")
+        if sys.platform == "win32":
+            if b_type in ["msedge", "edge", "microsoft-edge", "microsoft edge"]:
+                channel = "msedge"
+                user_agent = (
+                    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                    "AppleWebKit/537.36 (KHTML, like Gecko) "
+                    "Chrome/131.0.0.0 Safari/537.36 Edg/131.0.0.0"
+                )
+                print("[BrowserManager] Using Microsoft Edge browser channel.")
+            elif b_type in ["chrome", "google-chrome", "google chrome"]:
+                channel = "chrome"
+                print("[BrowserManager] Using Google Chrome browser channel.")
+            else:
+                print("[BrowserManager] Using default Chromium browser channel.")
         else:
-            print("[BrowserManager] Using default Chromium browser channel.")
+            channel = None
+            print("[BrowserManager] Linux detected: Using bundled Playwright Chromium.")
 
         self.context = self.playwright.chromium.launch_persistent_context(
             user_data_dir=self.profile_dir,

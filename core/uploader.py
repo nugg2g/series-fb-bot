@@ -1,7 +1,7 @@
 import os
 import time
 from datetime import datetime, timedelta
-from typing import Dict, Any, Optional, Callable
+from typing import Dict, Any, Optional, Callable, Tuple
 from playwright.sync_api import Page, TimeoutError as PlaywrightTimeoutError
 
 class ReelsUploader:
@@ -26,7 +26,7 @@ class ReelsUploader:
         is_alive = False
         try:
             if self.page and not self.page.is_closed():
-                _ = self.page.url
+                self.page.evaluate("1 + 1")
                 is_alive = True
         except Exception:
             is_alive = False

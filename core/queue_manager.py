@@ -1,4 +1,5 @@
 import os
+import sys
 import json
 import time
 import shutil
@@ -48,6 +49,10 @@ class QueueManager:
 
         def resolve_p(val, default_sub):
             p = val if val else default_sub
+            if sys.platform != "win32" and isinstance(p, str) and (p.startswith("Z:") or p.startswith("z:") or p.startswith("Y:") or p.startswith("y:")):
+                p = p.replace("\\", "/")
+                p = p[2:].lstrip("/")
+                p = os.path.join("/home/moes/storage", p)
             if not os.path.isabs(p):
                 return os.path.abspath(os.path.join(project_root, p))
             return os.path.abspath(p)
@@ -122,6 +127,10 @@ class QueueManager:
     def scan_videos(self, target_folder: Optional[str] = None) -> List[str]:
         """Scans the specified or default video folder and returns all supported video file paths sorted by name"""
         folder = target_folder or self.video_folder
+        if sys.platform != "win32" and isinstance(folder, str) and (folder.startswith("Z:") or folder.startswith("z:") or folder.startswith("Y:") or folder.startswith("y:")):
+            folder = folder.replace("\\", "/")
+            folder = folder[2:].lstrip("/")
+            folder = os.path.join("/home/moes/storage", folder)
         if not folder or not os.path.exists(folder):
             return []
 
