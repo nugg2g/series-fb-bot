@@ -130,6 +130,18 @@ def main():
                                 except Exception:
                                     pass
                                 break
+                elif action == "retry_failed":
+                    try:
+                        res = engine.queue_mgr.retry_failed_videos()
+                        print(f"✅ [WebMonitor] Retried failed videos: {res} items reset to pending")
+                    except Exception as ex:
+                        print(f"⚠️ [WebMonitor] Error retrying failed videos: {ex}")
+                elif action == "clear_failed":
+                    try:
+                        res = engine.queue_mgr.clear_failed_history()
+                        print(f"✅ [WebMonitor] Cleared failed history: {res} items cleared")
+                    except Exception as ex:
+                        print(f"⚠️ [WebMonitor] Error clearing failed history: {ex}")
                 elif action == "update_settings":
                     try:
                         curr = load_config()

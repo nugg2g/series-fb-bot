@@ -821,8 +821,7 @@ MOBILE_UI_HTML = """<!DOCTYPE html>
       </div>
 
       <div style="margin-bottom: 12px;">
-        <input type="password" id="pinDisplay" maxlength="8" readonly
-               style="width: 150px; text-align: center; font-size: 24px; letter-spacing: 6px; background: #07080d; border: 2px solid var(--accent); border-radius: 10px; color: #fff; padding: 6px;">
+        <input type="password" id="pinDisplay" maxlength="8" inputmode="numeric" pattern="[0-9]*" autocomplete="off" placeholder="••••" oninput="currPinInput = this.value.replace(/[^0-9]/g, ''); this.value = currPinInput; if(currPinInput.length===4) submitPinLogin();" onkeydown="if(event.key === 'Enter') submitPinLogin();" style="width: 160px; text-align: center; font-size: 26px; letter-spacing: 8px; background: #07080d; border: 2px solid var(--accent); border-radius: 10px; color: #fff; padding: 8px;">
       </div>
 
       <div id="pinErrorMsg" style="color: var(--danger); font-size: 11px; font-weight: bold; min-height: 18px; margin-bottom: 10px;"></div>
@@ -854,6 +853,9 @@ MOBILE_UI_HTML = """<!DOCTYPE html>
       <span>⚡ Reels Bot</span> Manager
     </div>
     <div class="top-actions">
+      <a href="http://10.161.4.10:9999" target="_blank" class="btn-sm btn-secondary" style="text-decoration:none; display:inline-flex; align-items:center; gap:5px; font-weight:700; color:#38bdf8; border:1px solid rgba(56,189,248,0.35); background:rgba(56,189,248,0.08); padding:5px 9px; border-radius:8px;" title="ເປີດ PG-Monitor ລະບົບຄວບຄຸມຫຼັກ">
+        🖥️ PG-Monitor
+      </a>
       <div class="conn-badge conn-online" id="connBadge">
         <div class="pulse-dot"></div>
         <span id="connStatusText">🟢 Bot ອອນລາຍ</span>
@@ -969,9 +971,13 @@ MOBILE_UI_HTML = """<!DOCTYPE html>
     <!-- ================== TAB 2: PAGES MANAGER ================== -->
     <div class="tab-content" id="tabPages">
       <div class="card">
-        <div class="card-head">
+        <div class="card-head" style="flex-wrap: wrap; gap: 8px;">
           <div class="card-title">🌐 ຈັດການ 4 Pages Facebook</div>
-          <button class="btn-sm btn-secondary" onclick="fetchState()">🔄 ຣີເຟຣຊ</button>
+          <div style="display: flex; gap: 6px;">
+            <button class="btn-sm btn-warning" onclick="retryFailedVideos()" title="ລອງອັບໂຫຼດວິດີໂອທີ່ຜິດພາດໃໝ່">🔄 ລອງໃໝ່ທັງໝົດ</button>
+            <button class="btn-sm btn-secondary" onclick="clearFailedHistory()" title="ລ້າງລາຍການທີ່ຜິດພາດອອກ">🧹 ລ້າງລາຍການຜິດພາດ</button>
+            <button class="btn-sm btn-secondary" onclick="fetchState()">🔄 ຣີເຟຣຊ</button>
+          </div>
         </div>
         <p style="font-size: 11px; color: var(--text-muted); margin-bottom: 12px;">
           ເລືອກ Page ທີ່ຕ້ອງການໃຫ້ Bot ອັບໂຫຼດ ຫຼື ແກ້ໄຂ Page ID ໄດ້ໂດຍກົງຈາກໂທລະສັບ:
@@ -986,9 +992,13 @@ MOBILE_UI_HTML = """<!DOCTYPE html>
     <!-- ================== TAB 3: QUEUE LIST ================== -->
     <div class="tab-content" id="tabQueue">
       <div class="card">
-        <div class="card-head">
+        <div class="card-head" style="flex-wrap: wrap; gap: 8px;">
           <div class="card-title">📋 ລາຍການວິດີໂອໃນຄິວ</div>
-          <button class="btn-sm btn-secondary" onclick="fetchState()">🔄 ຣີເຟຣຊ</button>
+          <div style="display: flex; gap: 6px;">
+            <button class="btn-sm btn-warning" onclick="retryFailedVideos()" title="ລອງອັບໂຫຼດວິດີໂອທີ່ຜິດພາດໃໝ່">🔄 ລອງໃໝ່ທັງໝົດ</button>
+            <button class="btn-sm btn-secondary" onclick="clearFailedHistory()" title="ລ້າງລາຍການທີ່ຜິດພາດອອກ">🧹 ລ້າງລາຍການຜິດພາດ</button>
+            <button class="btn-sm btn-secondary" onclick="fetchState()">🔄 ຣີເຟຣຊ</button>
+          </div>
         </div>
         <div id="queueListContainer" style="display: flex; flex-direction: column; gap: 6px; max-height: 480px; overflow-y: auto;">
           <div style="text-align: center; color: var(--text-muted); padding: 20px;">ກຳລັງໂຫຼດລາຍການຄິວ...</div>
@@ -1214,8 +1224,27 @@ MOBILE_UI_HTML = """<!DOCTYPE html>
       } else {
         if (currPinInput.length < 8) currPinInput += k;
       }
-      disp.value = currPinInput;
+      if (disp) disp.value = currPinInput;
+      if (currPinInput.length === 4) {
+        submitPinLogin();
+      }
     }
+
+    // Support keyboard input anywhere on screen when locked
+    document.addEventListener('keydown', function(e) {
+      const modal = document.getElementById('pinLockModal');
+      if (!modal || modal.style.display === 'none') return;
+      if (e.target && e.target.id === 'pinDisplay') return;
+      if (/^[0-9]$/.test(e.key)) {
+        pressKey(e.key);
+      } else if (e.key === 'Backspace') {
+        pressKey('DEL');
+      } else if (e.key === 'Enter') {
+        submitPinLogin();
+      } else if (e.key === 'Escape') {
+        pressKey('C');
+      }
+    });
 
     async function submitPinLogin() {
       const errMsg = document.getElementById('pinErrorMsg');
@@ -1598,6 +1627,19 @@ MOBILE_UI_HTML = """<!DOCTYPE html>
       }
     }
 
+    
+    async function retryFailedVideos() {
+      if (confirm('🔄 ທ່ານຕ້ອງການ Reset ວິດີໂອທີ່ເຄີຍຜິດພາດທັງໝົດ ເພື່ອນຳກັບມາອັບໂຫຼດໃໝ່ຫຼືບໍ່?')) {
+        await triggerAction('retry_failed');
+      }
+    }
+
+    async function clearFailedHistory() {
+      if (confirm('🧹 ທ່ານຕ້ອງການລຶບປະຫວັດວິດີໂອທີ່ຜິດພາດອອກຈາກລະບົບຫຼືບໍ່?')) {
+        await triggerAction('clear_failed');
+      }
+    }
+
     function loadSettingsIntoUI(force = false) {
       if (!gLastData || !gLastData.config_summary) return;
       if (gSettingsLoaded && !force) return;
@@ -1610,8 +1652,7 @@ MOBILE_UI_HTML = """<!DOCTYPE html>
 
       document.getElementById('cfgTitlePrefix').value = c.title_prefix || '';
       document.getElementById('cfgCaptionTemplate').value = c.caption_template || '';
-      document.getElementById('cfgHashtags').value = Array.isArray(c.hashtag_pool) ? c.hashtag_pool.join('
-') : '';
+      document.getElementById('cfgHashtags').value = Array.isArray(c.hashtag_pool) ? c.hashtag_pool.join(String.fromCharCode(10)) : '';
       document.getElementById('cfgTagsCount').value = c.tags_count || 10;
 
       document.getElementById('cfgAiEnabled').checked = !!c.ai_caption_enabled;
@@ -1630,8 +1671,7 @@ MOBILE_UI_HTML = """<!DOCTYPE html>
 
     async function saveComprehensiveSettings() {
       const hashtagsRaw = document.getElementById('cfgHashtags').value;
-      const tagsList = hashtagsRaw.split(/[
-,]+/).map(t => t.trim()).filter(Boolean);
+      const tagsList = hashtagsRaw.split(String.fromCharCode(10)).flatMap(line => line.split(",")).map(t => t.trim()).filter(Boolean);
 
       const payload = {
         randomize_delay: document.getElementById('cfgRandomDelay').checked,
@@ -1778,7 +1818,9 @@ def api_action(action_name: str):
         "post_cta": "📸 ສັ່ງ Gen ຮູບ AI & Post Follower CTA ແລ້ວ",
         "switch_page": f"⚡ ປ່ຽນ Target Page ເປັນ '{payload.get('page_name', '')}' ແລ້ວ",
         "update_page_id": f"💾 ບັນທຶກ Page ID: {payload.get('page_id', '')} ແລ້ວ",
-        "update_settings": "⚙️ ບັນທຶກການຕັ້ງຄ່າສຳເລັດແລ້ວ"
+        "update_settings": "⚙️ ບັນທຶກການຕັ້ງຄ່າສຳເລັດແລ້ວ",
+        "retry_failed": "🔄 Reset ວິດີໂອທີ່ຜິດພາດໃຫ້ນຳກັບມາອັບໂຫຼດໃໝ່ແລ້ວ",
+        "clear_failed": "🧹 ລ້າງປະຫວັດທີ່ຜິດພາດສຳເລັດແລ້ວ"
     }
 
     msg = lao_msgs.get(action_clean, f"ຮັບຄຳສັ່ງ '{action_clean}' ແລ້ວ")
