@@ -747,42 +747,6 @@ MOBILE_UI_HTML = """<!DOCTYPE html>
       cursor: pointer;
     }
 
-    /* Settings Sections */
-    .settings-section {
-      background: #0d101c;
-      border: 1px solid #1e263d;
-      border-radius: 12px;
-      padding: 12px;
-      margin-bottom: 12px;
-    }
-    .section-title {
-      font-size: 12px;
-      font-weight: 800;
-      color: #38bdf8;
-      text-transform: uppercase;
-      letter-spacing: 0.5px;
-      margin-bottom: 10px;
-      display: flex;
-      align-items: center;
-      gap: 6px;
-    }
-    .form-group-switch {
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      padding: 8px 0;
-      border-bottom: 1px solid #192033;
-      margin-bottom: 8px;
-    }
-    .switch-lbl { font-size: 13px; font-weight: 700; color: #fff; }
-    .switch-sub { font-size: 11px; color: var(--text-muted); margin-top: 2px; }
-    .toggle-switch {
-      width: 44px;
-      height: 24px;
-      accent-color: #38bdf8;
-      cursor: pointer;
-    }
-
     /* Inputs */
     .input-field {
       width: 100%;
