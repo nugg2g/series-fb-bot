@@ -41,6 +41,10 @@ def main():
     parser.add_argument("--delay", type=int, help="Override delay between posts (minutes)")
     parser.add_argument("--mode", type=str, choices=["now", "schedule"], help="Post mode: now or schedule")
     parser.add_argument("--headless", action="store_true", help="Run browser in headless mode")
+    parser.add_argument("--add-page", action="store_true", help="Add or update a page in pages_pipeline")
+    parser.add_argument("--page-name", type=str, help="Name of the Facebook page")
+    parser.add_argument("--page-id", type=str, help="ID of the Facebook page")
+    parser.add_argument("--pick-mode", type=str, choices=["random", "sequential"], default="random", help="Pick mode: random or sequential")
 
     args = parser.parse_args()
     config = load_config()
@@ -53,6 +57,41 @@ def main():
         config["post_mode"] = args.mode
     if args.headless:
         config["headless"] = True
+    if args.add_page:
+        if not args.page_id or not args.page_name:
+            print("❌ Error: Both --page-name and --page-id are required!")
+            return
+        v_folder = args.folder or "/home/moes/storage/Reels/Movies FB"
+        p_mode = args.pick_mode or "random"
+        pipeline = config.setdefault("pages_pipeline", [])
+        new_entry = {
+            "page_id": str(args.page_id).strip(),
+            "page_name": str(args.page_name).strip(),
+            "enabled": True,
+            "video_folder": v_folder,
+            "completed_folder": "./completed/shared" if "/Movies FB" in v_folder and "Dedicated" not in v_folder else "./completed/dedicated",
+            "failed_folder": "./failed/shared" if "/Movies FB" in v_folder and "Dedicated" not in v_folder else "./failed/dedicated",
+            "pick_mode": p_mode,
+            "content_type": "china_drama" if "Movies FB" in v_folder and "Dedicated" not in v_folder else "general",
+            "title_prefix": "[เต็มเรื่อง] " if "Movies FB" in v_folder and "Dedicated" not in v_folder else "",
+            "title_mode": "filename_clean",
+            "caption_template": config.get("caption_template", "🎬 {title}\n\n{tags}"),
+            "hashtag_pool": config.get("hashtag_pool", ["#reels", "#fyp"]),
+            "cta_post_enabled": False
+        }
+        found = False
+        for idx, p in enumerate(pipeline):
+            if str(p.get("page_id", "")).strip() == str(args.page_id).strip():
+                pipeline[idx].update(new_entry)
+                found = True
+                break
+        if not found:
+            pipeline.append(new_entry)
+
+        with open(CONFIG_PATH, "w", encoding="utf-8") as f:
+            json.dump(config, f, ensure_ascii=False, indent=2)
+        print(f"✅ Successfully added/updated Page in pipeline: '{args.page_name}' (ID: {args.page_id}, Mode: {p_mode})")
+        return
 
     if args.login:
         print("🌐 Opening browser for manual login...")
@@ -176,6 +215,82 @@ def main():
                         print("✅ [WebMonitor] Updated and dynamically applied new settings to running bot!")
                     except Exception as ex:
                         print(f"⚠️ [WebMonitor] Error updating settings: {ex}")
+                elif action == "add_pipeline_page":
+                    try:
+                        p_name = str(payload.get("page_name", "")).strip()
+                        p_id = str(payload.get("page_id", "")).strip()
+                        v_folder = str(payload.get("video_folder", "/home/moes/storage/Reels/Movies FB")).strip()
+                        pick_mode = str(payload.get("pick_mode", "random")).strip().lower()
+                        content_type = str(payload.get("content_type", "china_drama")).strip()
+                        title_prefix = payload.get("title_prefix")
+                        if title_prefix is None:
+                            title_prefix = "[เต็มเรื่อง] " if content_type == "china_drama" else ""
+
+                        curr = load_config()
+                        pipeline = curr.setdefault("pages_pipeline", [])
+
+                        default_tpl = curr.get("caption_template", "🎬 {title}\n\n{tags}")
+                        default_tags = curr.get("hashtag_pool", ["#reels", "#fyp"])
+
+                        new_entry = {
+                            "page_id": p_id,
+                            "page_name": p_name,
+                            "enabled": True,
+                            "video_folder": v_folder,
+                            "completed_folder": "./completed/shared" if "/Movies FB" in v_folder and "Dedicated" not in v_folder else "./completed/dedicated",
+                            "failed_folder": "./failed/shared" if "/Movies FB" in v_folder and "Dedicated" not in v_folder else "./failed/dedicated",
+                            "pick_mode": pick_mode,
+                            "content_type": content_type,
+                            "title_prefix": title_prefix,
+                            "title_mode": "filename_clean",
+                            "caption_template": default_tpl,
+                            "hashtag_pool": default_tags,
+                            "cta_post_enabled": False
+                        }
+                        found = False
+                        for idx, p in enumerate(pipeline):
+                            if str(p.get("page_id", "")).strip() == p_id:
+                                pipeline[idx].update(new_entry)
+                                found = True
+                                break
+                        if not found:
+                            pipeline.append(new_entry)
+
+                        with open(CONFIG_PATH, "w", encoding="utf-8") as f:
+                            json.dump(curr, f, ensure_ascii=False, indent=2)
+                        config.update(curr)
+                        engine.apply_config(curr)
+                        print(f"✅ [WebMonitor] Added/Updated Page in pipeline: '{p_name}' (ID: {p_id}, Mode: {pick_mode})")
+                    except Exception as ex:
+                        print(f"⚠️ [WebMonitor] Error adding pipeline page: {ex}")
+                elif action == "toggle_pipeline_page":
+                    try:
+                        p_id = str(payload.get("page_id", "")).strip()
+                        curr = load_config()
+                        for p in curr.get("pages_pipeline", []):
+                            if str(p.get("page_id", "")).strip() == p_id:
+                                p["enabled"] = not p.get("enabled", True)
+                                break
+                        with open(CONFIG_PATH, "w", encoding="utf-8") as f:
+                            json.dump(curr, f, ensure_ascii=False, indent=2)
+                        config.update(curr)
+                        engine.apply_config(curr)
+                        print(f"✅ [WebMonitor] Toggled pipeline page ID: {p_id}")
+                    except Exception as ex:
+                        print(f"⚠️ [WebMonitor] Error toggling pipeline page: {ex}")
+                elif action == "delete_pipeline_page":
+                    try:
+                        p_id = str(payload.get("page_id", "")).strip()
+                        curr = load_config()
+                        pipeline = [p for p in curr.get("pages_pipeline", []) if str(p.get("page_id", "")).strip() != p_id]
+                        curr["pages_pipeline"] = pipeline
+                        with open(CONFIG_PATH, "w", encoding="utf-8") as f:
+                            json.dump(curr, f, ensure_ascii=False, indent=2)
+                        config.update(curr)
+                        engine.apply_config(curr)
+                        print(f"✅ [WebMonitor] Deleted pipeline page ID: {p_id}")
+                    except Exception as ex:
+                        print(f"⚠️ [WebMonitor] Error deleting pipeline page: {ex}")
                 elif action == "restart":
                     print("🔄 [WebMonitor] Restart command received! Restarting bot process...")
                     try:

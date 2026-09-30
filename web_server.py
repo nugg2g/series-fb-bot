@@ -151,6 +151,7 @@ SERVER_STATE = {
     "page_id": "1332661329928072",
     "is_safe": True,
     "page_groups": [],
+    "pages_pipeline": [],
     "queue_stats": {
         "total_in_folder": 0,
         "pending_in_folder": 0,
@@ -841,7 +842,7 @@ MOBILE_UI_HTML = """<!DOCTYPE html>
     <div class="tab-content" id="tabPages">
       <div class="card">
         <div class="card-head" style="flex-wrap: wrap; gap: 8px;">
-          <div class="card-title">🌐 ຈັດການ 4 Pages Facebook</div>
+          <div class="card-title">🌐 ຈັດການ Pages Pipeline</div>
           <div style="display: flex; gap: 6px;">
             <button class="btn-sm btn-warning" onclick="retryFailedVideos()" title="ລອງອັບໂຫຼດວິດີໂອທີ່ຜິດພາດໃໝ່">🔄 ລອງໃໝ່ທັງໝົດ</button>
             <button class="btn-sm btn-secondary" onclick="clearFailedHistory()" title="ລ້າງລາຍການທີ່ຜິດພາດອອກ">🧹 ລ້າງລາຍການຜິດພາດ</button>
@@ -849,12 +850,66 @@ MOBILE_UI_HTML = """<!DOCTYPE html>
           </div>
         </div>
         <p style="font-size: 11px; color: var(--text-muted); margin-bottom: 12px;">
-          ເລືອກ Page ທີ່ຕ້ອງການໃຫ້ Bot ອັບໂຫຼດ ຫຼື ແກ້ໄຂ Page ID ໄດ້ໂດຍກົງຈາກໂທລະສັບ:
+          ລາຍການ Pages ທີ່ Bot ຈະໝູນວຽນອັບໂຫຼດເທື່ອລະ Page ຕາມລຳດັບ (Round-Robin):
         </p>
 
         <div id="pagesListContainer">
           <div style="text-align: center; color: var(--text-muted); padding: 20px;">ກຳລັງໂຫຼດຂໍ້ມູນ Pages...</div>
         </div>
+      </div>
+
+      <!-- Add New Page Card -->
+      <div class="card" style="margin-top: 14px; border: 1px solid rgba(56, 189, 248, 0.35); background: #0c1222;">
+        <div class="card-title" style="color: #38bdf8;">➕ ເພີ່ມ Page ໃໝ່ (Add New Page)</div>
+        <div style="font-size: 11px; color: #94a3b8; margin-bottom: 12px;">
+          ເພີ່ມ Facebook Page ໃໝ່ເຂົ້າສູ່ຄິວອັບໂຫຼດອັດຕະໂນມັດ ພ້ອມເລືອກໂຟນເດີ ແລະ ຮູບແບບການລົງຄລິບ:
+        </div>
+
+        <div class="form-group">
+          <label class="form-lbl">ຊື່ Page (Page Name)</label>
+          <input type="text" class="input-field" id="newPgName" placeholder="ຕົວຢ່າງ: ຊີຣີຈີນ ເລື່ອງໃໝ່">
+        </div>
+
+        <div class="form-group">
+          <label class="form-lbl">Page ID (ຕົວເລກເທົ່ານັ້ນ)</label>
+          <input type="text" class="input-field" id="newPgId" placeholder="ຕົວຢ່າງ: 1393513767170586">
+        </div>
+
+        <div class="form-group">
+          <label class="form-lbl">ໂຟນເດີວິດີໂອ (Video Folder)</label>
+          <select class="input-field" id="newPgFolderPreset" onchange="handleFolderPresetChange(this.value)">
+            <option value="/home/moes/storage/Reels/Movies FB">📁 ໂຟນເດີລວມຊີຣີຈີນ (/home/moes/storage/Reels/Movies FB)</option>
+            <option value="/home/moes/storage/Reels/Movies FB Dedicated">📁 ໂຟນເດີແຍກນ້ອງເຂົ້າຫອມ (/home/moes/storage/Reels/Movies FB Dedicated)</option>
+            <option value="custom">✏️ ໃສ່ Path ໂຟນເດີເອງ...</option>
+          </select>
+          <input type="text" class="input-field" id="newPgFolderCustom" style="display:none; margin-top:6px;" placeholder="/home/moes/storage/Reels/Custom Folder">
+        </div>
+
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px;">
+          <div class="form-group">
+            <label class="form-lbl">ຮູບແບບເລືອກຄລິບ</label>
+            <select class="input-field" id="newPgPickMode">
+              <option value="random">🎲 ສຸ່ມຄລິບ (Random)</option>
+              <option value="sequential">🔢 ຕາມລຳດັບ (Sequential EP1, EP2...)</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label class="form-lbl">ປະເພດເນື້ອຫາ</label>
+            <select class="input-field" id="newPgContentType">
+              <option value="china_drama">🎬 ຊີຣີຈີນ (China Drama)</option>
+              <option value="lao_girl_khaohom">🌸 ສາວລາວ / ອື່ນໆ</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label class="form-lbl">Title Prefix (ຄຳນຳໜ້າຫົວຂໍ້)</label>
+          <input type="text" class="input-field" id="newPgTitlePrefix" value="[เต็มเรื่อง] " placeholder="ຕົວຢ່າງ: [เต็มเรื่อง]  ຫຼື ປະຫວ່າງ">
+        </div>
+
+        <button class="btn btn-start" style="width: 100%; margin-top: 8px; padding: 12px;" onclick="submitNewPipelinePage()">
+          ➕ ເພີ່ມ Page ນີ້ເຂົ້າລະບົບທັນທີ
+        </button>
       </div>
     </div>
 
@@ -1304,7 +1359,7 @@ MOBILE_UI_HTML = """<!DOCTYPE html>
         }
 
         // Render Pages
-        renderPagesList(data.page_groups || [], data.page_id);
+        renderPagesList(data.page_groups || [], data.page_id, data.pages_pipeline || []);
 
         // Render Queue
         renderQueueList(data.queue_items || []);
@@ -1335,8 +1390,133 @@ MOBILE_UI_HTML = """<!DOCTYPE html>
       }
     }, 1000);
 
-    function renderPagesList(groups, activePageId) {
+    function handleFolderPresetChange(val) {
+      const customInp = document.getElementById('newPgFolderCustom');
+      if (val === 'custom') {
+        customInp.style.display = 'block';
+      } else {
+        customInp.style.display = 'none';
+      }
+    }
+
+    async function submitNewPipelinePage() {
+      const name = document.getElementById('newPgName').value.trim();
+      const id = document.getElementById('newPgId').value.trim();
+      const preset = document.getElementById('newPgFolderPreset').value;
+      let folder = preset;
+      if (preset === 'custom') {
+        folder = document.getElementById('newPgFolderCustom').value.trim();
+      }
+      const pickMode = document.getElementById('newPgPickMode').value;
+      const contentType = document.getElementById('newPgContentType').value;
+      const prefix = document.getElementById('newPgTitlePrefix').value;
+
+      if (!name || !id) {
+        alert('❌ ກະລຸນາໃສ່ ຊື່ Page ແລະ Page ID ໃຫ້ຄົບຖ້ວນ');
+        return;
+      }
+      if (!folder) {
+        alert('❌ ກະລຸນາໃສ່ Path ໂຟນເດີວິດີໂອ');
+        return;
+      }
+
+      try {
+        const res = await fetch('/api/action/add_pipeline_page', {
+          method: 'POST',
+          headers: getAuthHeaders(),
+          body: JSON.stringify({
+            page_name: name,
+            page_id: id,
+            video_folder: folder,
+            pick_mode: pickMode,
+            content_type: contentType,
+            title_prefix: prefix
+          })
+        });
+        if (res.status === 401) { lockApp(); return; }
+        const json = await res.json();
+        alert(json.message || 'ເພີ່ມ Page ສຳເລັດ');
+        document.getElementById('newPgName').value = '';
+        document.getElementById('newPgId').value = '';
+        fetchState();
+      } catch (e) {
+        alert('ຜິດພາດ: ' + e);
+      }
+    }
+
+    async function togglePipelinePage(pageId) {
+      try {
+        const res = await fetch('/api/action/toggle_pipeline_page', {
+          method: 'POST',
+          headers: getAuthHeaders(),
+          body: JSON.stringify({ page_id: pageId })
+        });
+        if (res.status === 401) { lockApp(); return; }
+        const json = await res.json();
+        fetchState();
+      } catch (e) {
+        alert('ຜິດພາດ: ' + e);
+      }
+    }
+
+    async function deletePipelinePage(pageId, pageName) {
+      if (confirm(`🗑️ ທ່ານແນ່ໃຈບໍ່ວ່າຕ້ອງການລຶບ Page '${pageName}' (ID: ${pageId}) ອອກຈາກລະບົບ?`)) {
+        try {
+          const res = await fetch('/api/action/delete_pipeline_page', {
+            method: 'POST',
+            headers: getAuthHeaders(),
+            body: JSON.stringify({ page_id: pageId })
+          });
+          if (res.status === 401) { lockApp(); return; }
+          const json = await res.json();
+          alert(json.message || 'ລຶບ Page ສຳເລັດ');
+          fetchState();
+        } catch (e) {
+          alert('ຜິດພາດ: ' + e);
+        }
+      }
+    }
+
+    function renderPagesList(groups, activePageId, pipeline) {
       const container = document.getElementById('pagesListContainer');
+      if (pipeline && pipeline.length > 0) {
+        let html = '';
+        pipeline.forEach((p, pIdx) => {
+          const isRand = (p.pick_mode || 'random') === 'random';
+          const modeColor = isRand ? '#38bdf8' : '#c084fc';
+          const modeBadge = isRand ? '🎲 ສຸ່ມ (Random)' : '🔢 ຕາມລຳດັບ (Sequential)';
+          const catName = p.content_type === 'lao_girl_khaohom' ? '🌸 ສາວລາວ' : '🎬 ຊີຣີຈີນ';
+          const isEnabled = p.enabled !== false;
+          const isActive = activePageId && p.page_id && String(activePageId) === String(p.page_id);
+
+          html += `<div class="group-card" style="margin-bottom: 8px; border-left: 4px solid ${isEnabled ? modeColor : '#475569'}; ${isActive ? 'background: rgba(56, 189, 248, 0.08); border-color: var(--accent);' : ''}">
+            <div class="group-header">
+              <div style="font-weight: 800; font-size: 13px; color: ${isEnabled ? '#fff' : '#64748b'};">
+                ${isActive ? '⚡ ' : ''}${p.page_name || 'Page ' + (pIdx+1)}
+              </div>
+              <div style="display: flex; gap: 4px;">
+                <span style="font-size: 10px; background: #1c2236; padding: 2px 7px; border-radius: 10px; color: ${modeColor}; font-weight: 700;">${modeBadge}</span>
+                <span style="font-size: 10px; background: #1c2236; padding: 2px 7px; border-radius: 10px; color: #f59e0b; font-weight: 700;">${catName}</span>
+              </div>
+            </div>
+            <div style="font-size: 11px; color: var(--text-muted); margin: 3px 0;">
+              ID: <span style="color: #cbd5e1; font-weight: 600;">${p.page_id || '(ຍັງບໍ່ມີ)'}</span> | ໂຟນເດີ: <span style="color: #94a3b8;">${p.video_folder || '-'}</span>
+            </div>
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 8px; padding-top: 6px; border-top: 1px solid #1c2236;">
+              <span style="font-size: 11px; font-weight: 700; color: ${isEnabled ? '#10b981' : '#64748b'};">
+                ${isEnabled ? '🟢 ເປີດໃຊ້ງານ' : '⚪ ປິດໄວ້'}
+              </span>
+              <div class="page-actions" style="gap: 5px;">
+                <button class="btn-sm btn-secondary" onclick="togglePipelinePage('${p.page_id}')" title="ເປີດ/ປິດ">${isEnabled ? '⏸️ ປິດ' : '▶️ ເປີດ'}</button>
+                <button class="btn-sm" style="background: #ef4444; color: white;" onclick="deletePipelinePage('${p.page_id}', '${escapeJs(p.page_name)}')" title="ລຶບ Page">🗑️ ລຶບ</button>
+              </div>
+            </div>
+          </div>`;
+        });
+        container.innerHTML = html;
+        return;
+      }
+
       if (!groups || groups.length === 0) {
         container.innerHTML = '<div style="color: var(--text-muted); font-size: 12px;">ຍັງບໍ່ມີຂໍ້ມູນ Groups</div>';
         return;
@@ -1689,6 +1869,14 @@ def api_action(action_name: str):
         # Pass comprehensive settings payload
         pass
 
+    elif action_clean in ["add_pipeline_page", "toggle_pipeline_page", "delete_pipeline_page"]:
+        if "page_id" in payload:
+            raw_id = str(payload.get("page_id", "")).strip()
+            clean_id = re.sub(r'[^0-9]', '', raw_id)
+            if not clean_id or len(clean_id) < 5 or len(clean_id) > 32:
+                return jsonify({"success": False, "message": "❌ Page ID ບໍ່ຖືກຕ້ອງ (ຕ້ອງເປັນຕົວເລກ 5-32 ຫຼັກ)"}), 400
+            payload["page_id"] = clean_id
+
     cmd = {
         "id": f"cmd_{int(time.time()*1000)}",
         "action": action_clean,
@@ -1709,6 +1897,9 @@ def api_action(action_name: str):
         "post_cta": "📸 ສັ່ງ Gen ຮູບ AI & Post Follower CTA ແລ້ວ",
         "switch_page": f"⚡ ປ່ຽນ Target Page ເປັນ '{payload.get('page_name', '')}' ແລ້ວ",
         "update_page_id": f"💾 ບັນທຶກ Page ID ໃໝ່: {payload.get('page_id', '')} ແລ້ວ",
+        "add_pipeline_page": f"➕ ເພີ່ມ Page '{payload.get('page_name', '')}' ເຂົ້າລະບົບສຳເລັດແລ້ວ!",
+        "toggle_pipeline_page": "🔄 ສະຫຼັບສະຖານະ Page ສຳເລັດແລ້ວ",
+        "delete_pipeline_page": "🗑️ ລຶບ Page ອອກຈາກລະບົບສຳເລັດແລ້ວ",
         "update_settings": "⚙️ ບັນທຶກການຕັ້ງຄ່າສຳເລັດແລ້ວ",
         "retry_failed": "🔄 Reset ວິດີໂອທີ່ຜິດພາດໃຫ້ນຳກັບມາອັບໂຫຼດໃໝ່ແລ້ວ",
         "clear_failed": "🧹 ລ້າງປະຫວັດທີ່ຜິດພາດສຳເລັດແລ້ວ",
@@ -1742,7 +1933,7 @@ def api_sync():
     now = time.time()
 
     for k in ["status", "progress_pct", "progress_text", "current_video", 
-              "page_name", "page_id", "is_safe", "page_groups", "queue_stats", 
+              "page_name", "page_id", "is_safe", "page_groups", "pages_pipeline", "queue_stats", 
               "queue_items", "recent_logs", "delay_remaining_seconds", 
               "delay_total_seconds", "countdown_str", "next_post_time", 
               "next_target", "config_summary"]:

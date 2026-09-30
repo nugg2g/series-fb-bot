@@ -249,6 +249,7 @@ class MonitorState:
                     with open(cfg_path, "r", encoding="utf-8") as f:
                         cfg = json.load(f)
                         page_groups = cfg.get("page_groups", [])
+                        pages_pipeline = cfg.get("pages_pipeline", [])
                         config_summary = {
                             "delay_min_minutes": cfg.get("delay_min_minutes", 180),
                             "delay_max_minutes": cfg.get("delay_max_minutes", 240),
@@ -295,6 +296,7 @@ class MonitorState:
                 "page_name": self.page_name,
                 "page_id": self.page_id,
                 "page_groups": page_groups,
+                "pages_pipeline": pages_pipeline,
                 "is_safe": self.is_safe,
                 "queue_stats": dict(self.queue_stats),
                 "queue_items": items,
@@ -1496,7 +1498,7 @@ MOBILE_UI_HTML = """<!DOCTYPE html>
         }
 
         // Render Pages
-        renderPagesList(data.page_groups || [], data.page_id);
+        renderPagesList(data.page_groups || [], data.page_id, data.pages_pipeline || []);
 
         // Render Queue
         renderQueueList(data.queue_items || []);
@@ -1527,8 +1529,84 @@ MOBILE_UI_HTML = """<!DOCTYPE html>
       }
     }, 1000);
 
-    function renderPagesList(groups, activePageId) {
+    async function togglePipelinePage(pageId) {
+      try {
+        const res = await fetch('/api/action/toggle_pipeline_page', {
+          method: 'POST',
+          headers: getAuthHeaders(),
+          body: JSON.stringify({ page_id: pageId })
+        });
+        if (res.status === 401) { lockApp(); return; }
+        const json = await res.json();
+        fetchState();
+      } catch (e) {
+        alert('ຜິດພາດ: ' + e);
+      }
+    }
+
+    async function deletePipelinePage(pageId, pageName) {
+      if (confirm(`🗑️ ທ່ານແນ່ໃຈບໍ່ວ່າຕ້ອງການລຶບ Page '${pageName}' (ID: ${pageId}) ອອກຈາກລະບົບ?`)) {
+        try {
+          const res = await fetch('/api/action/delete_pipeline_page', {
+            method: 'POST',
+            headers: getAuthHeaders(),
+            body: JSON.stringify({ page_id: pageId })
+          });
+          if (res.status === 401) { lockApp(); return; }
+          const json = await res.json();
+          alert(json.message || 'ລຶບ Page ສຳເລັດ');
+          fetchState();
+        } catch (e) {
+          alert('ຜິດພາດ: ' + e);
+        }
+      }
+    }
+
+    function renderPagesList(groups, activePageId, pipeline) {
       const container = document.getElementById('pagesListContainer');
+      if (pipeline && pipeline.length > 0) {
+        const titleEl = document.getElementById('pagesCardTitle');
+        if (titleEl) titleEl.innerText = '🌐 ຈັດການ Pages Pipeline (' + pipeline.length + ' Pages)';
+        const navLbl = document.getElementById('navPagesLbl');
+        if (navLbl) navLbl.innerText = 'ເພຈ (' + pipeline.length + ')';
+
+        let html = '';
+        pipeline.forEach((p, pIdx) => {
+          const isRand = (p.pick_mode || 'random') === 'random';
+          const modeColor = isRand ? '#38bdf8' : '#c084fc';
+          const modeBadge = isRand ? '🎲 ສຸ່ມ (Random)' : '🔢 ຕາມລຳດັບ (Sequential)';
+          const catName = p.content_type === 'lao_girl_khaohom' ? '🌸 ສາວລາວ' : '🎬 ຊີຣີຈີນ';
+          const isEnabled = p.enabled !== false;
+          const isActive = activePageId && p.page_id && String(activePageId) === String(p.page_id);
+
+          html += `<div class="group-card" style="margin-bottom: 8px; border-left: 4px solid ${isEnabled ? modeColor : '#475569'}; ${isActive ? 'background: rgba(56, 189, 248, 0.08); border-color: var(--accent);' : ''}">
+            <div class="group-header">
+              <div style="font-weight: 800; font-size: 13px; color: ${isEnabled ? '#fff' : '#64748b'};">
+                ${isActive ? '⚡ ' : ''}${p.page_name || 'Page ' + (pIdx+1)}
+              </div>
+              <div style="display: flex; gap: 4px;">
+                <span style="font-size: 10px; background: #1c2236; padding: 2px 7px; border-radius: 10px; color: ${modeColor}; font-weight: 700;">${modeBadge}</span>
+                <span style="font-size: 10px; background: #1c2236; padding: 2px 7px; border-radius: 10px; color: #f59e0b; font-weight: 700;">${catName}</span>
+              </div>
+            </div>
+            <div style="font-size: 11px; color: var(--text-muted); margin: 3px 0;">
+              ID: <span style="color: #cbd5e1; font-weight: 600;">${p.page_id || '(ຍັງບໍ່ມີ)'}</span> | ໂຟນເດີ: <span style="color: #94a3b8;">${p.video_folder || '-'}</span>
+            </div>
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 8px; padding-top: 6px; border-top: 1px solid #1c2236;">
+              <span style="font-size: 11px; font-weight: 700; color: ${isEnabled ? '#10b981' : '#64748b'};">
+                ${isEnabled ? '🟢 ເປີດໃຊ້ງານ' : '⚪ ປິດໄວ້'}
+              </span>
+              <div class="page-actions" style="gap: 5px;">
+                <button class="btn-sm btn-secondary" onclick="togglePipelinePage('${p.page_id}')" title="ເປີດ/ປິດ">${isEnabled ? '⏸️ ປິດ' : '▶️ ເປີດ'}</button>
+                <button class="btn-sm" style="background: #ef4444; color: white;" onclick="deletePipelinePage('${p.page_id}', '${escapeJs(p.page_name)}')" title="ລຶບ Page">🗑️ ລຶບ</button>
+              </div>
+            </div>
+          </div>`;
+        });
+        container.innerHTML = html;
+        return;
+      }
+
       if (!groups || groups.length === 0) {
         container.innerHTML = '<div style="color: var(--text-muted); font-size: 12px;">ຍັງບໍ່ມີຂໍ້ມູນ Groups</div>';
         return;
@@ -2061,6 +2139,100 @@ def api_action(action_name: str):
                         pass
                 return jsonify({"success": True, "message": f"💾 ບັນທຶກຂໍ້ມູນ Page ສຳເລັດ (ID: {clean_id})"})
             return jsonify({"success": False, "message": "❌ ບໍ່ພົບ Page ທີ່ຕ້ອງການແກ້ໄຂ"}), 404
+        except Exception as e:
+            return jsonify({"success": False, "message": f"ຜິດພາດ: {e}"}), 500
+
+    elif action_clean == "add_pipeline_page":
+        p_name = payload.get("page_name", "").strip()
+        raw_id = str(payload.get("page_id", "")).strip()
+        clean_id = re.sub(r'[^0-9]', '', raw_id)
+        v_folder = str(payload.get("video_folder", "/home/moes/storage/Reels/Movies FB")).strip()
+        pick_mode = str(payload.get("pick_mode", "random")).strip().lower()
+        content_type = str(payload.get("content_type", "china_drama")).strip()
+        title_prefix = payload.get("title_prefix")
+        if title_prefix is None:
+            title_prefix = "[เต็มเรื่อง] " if content_type == "china_drama" else ""
+
+        if not p_name:
+            return jsonify({"success": False, "message": "❌ ກະລຸນາໃສ່ຊື່ Page"}), 400
+        if not clean_id or len(clean_id) < 5 or len(clean_id) > 32:
+            return jsonify({"success": False, "message": "❌ Page ID ບໍ່ຖືກຕ້ອງ (ຕ້ອງເປັນຕົວເລກ 5-32 ຫຼັກ)"}), 400
+
+        try:
+            with open(cfg_path, "r", encoding="utf-8") as f:
+                c = json.load(f)
+            pipeline = c.setdefault("pages_pipeline", [])
+            new_entry = {
+                "page_id": clean_id,
+                "page_name": p_name,
+                "enabled": True,
+                "video_folder": v_folder,
+                "completed_folder": "./completed/shared" if "/Movies FB" in v_folder and "Dedicated" not in v_folder else "./completed/dedicated",
+                "failed_folder": "./failed/shared" if "/Movies FB" in v_folder and "Dedicated" not in v_folder else "./failed/dedicated",
+                "pick_mode": pick_mode,
+                "content_type": content_type,
+                "title_prefix": title_prefix,
+                "title_mode": "filename_clean",
+                "caption_template": c.get("caption_template", "🎬 {title}\n\n{tags}"),
+                "hashtag_pool": c.get("hashtag_pool", ["#reels", "#fyp"]),
+                "cta_post_enabled": False
+            }
+            found = False
+            for idx, p in enumerate(pipeline):
+                if str(p.get("page_id", "")).strip() == clean_id:
+                    pipeline[idx].update(new_entry)
+                    found = True
+                    break
+            if not found:
+                pipeline.append(new_entry)
+            with open(cfg_path, "w", encoding="utf-8") as f:
+                json.dump(c, f, ensure_ascii=False, indent=2)
+            if ACTION_CALLBACK:
+                try:
+                    ACTION_CALLBACK("add_pipeline_page", payload)
+                except Exception:
+                    pass
+            return jsonify({"success": True, "message": f"✅ ເພີ່ມ/ອັບເດດ Page '{p_name}' ເຂົ້າ Pipeline ສຳເລັດ!"})
+        except Exception as e:
+            return jsonify({"success": False, "message": f"ຜິດພາດ: {e}"}), 500
+
+    elif action_clean == "toggle_pipeline_page":
+        raw_id = str(payload.get("page_id", "")).strip()
+        clean_id = re.sub(r'[^0-9]', '', raw_id)
+        try:
+            with open(cfg_path, "r", encoding="utf-8") as f:
+                c = json.load(f)
+            for p in c.get("pages_pipeline", []):
+                if str(p.get("page_id", "")).strip() == clean_id:
+                    p["enabled"] = not p.get("enabled", True)
+                    break
+            with open(cfg_path, "w", encoding="utf-8") as f:
+                json.dump(c, f, ensure_ascii=False, indent=2)
+            if ACTION_CALLBACK:
+                try:
+                    ACTION_CALLBACK("toggle_pipeline_page", payload)
+                except Exception:
+                    pass
+            return jsonify({"success": True, "message": "🔄 ສະຫຼັບສະຖານະ Page ສຳເລັດ"})
+        except Exception as e:
+            return jsonify({"success": False, "message": f"ຜິດພາດ: {e}"}), 500
+
+    elif action_clean == "delete_pipeline_page":
+        raw_id = str(payload.get("page_id", "")).strip()
+        clean_id = re.sub(r'[^0-9]', '', raw_id)
+        try:
+            with open(cfg_path, "r", encoding="utf-8") as f:
+                c = json.load(f)
+            pipeline = [p for p in c.get("pages_pipeline", []) if str(p.get("page_id", "")).strip() != clean_id]
+            c["pages_pipeline"] = pipeline
+            with open(cfg_path, "w", encoding="utf-8") as f:
+                json.dump(c, f, ensure_ascii=False, indent=2)
+            if ACTION_CALLBACK:
+                try:
+                    ACTION_CALLBACK("delete_pipeline_page", payload)
+                except Exception:
+                    pass
+            return jsonify({"success": True, "message": "🗑️ ລຶບ Page ອອກຈາກ Pipeline ສຳເລັດ"})
         except Exception as e:
             return jsonify({"success": False, "message": f"ຜິດພາດ: {e}"}), 500
 

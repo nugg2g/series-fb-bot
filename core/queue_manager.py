@@ -3,10 +3,17 @@ import sys
 import json
 import time
 import shutil
+import re
+import random
 from datetime import datetime
 from typing import List, Dict, Any, Optional, Tuple
 
 from core.utils import compute_file_hash
+
+def natural_sort_key(s: str) -> list:
+    """Sort strings containing numbers naturally, e.g. ep1, ep2, ..., ep9, ep10"""
+    return [int(text) if text.isdigit() else text.lower() for text in re.split(r'(\d+)', str(s))]
+
 
 class QueueManager:
     VIDEO_EXTENSIONS = ('.mp4', '.mov', '.mkv', '.avi', '.webm', '.flv', '.wmv')
@@ -337,45 +344,80 @@ class QueueManager:
             return False, [], pages_done
         return True, pages_needing, pages_done
 
+    def get_candidate_videos_for_page(self, page_id: str, video_folder: Optional[str] = None) -> List[str]:
+        """
+        Scans video_folder and returns all video/image files that have NOT yet been uploaded to page_id.
+        Never scans completed_folder, ensuring pages never backfill old uploaded videos.
+        """
+        folder = video_folder or self.video_folder
+        all_videos = self.scan_videos(target_folder=folder)
+        candidates = []
+        p_id_str = str(page_id).strip()
+
+        for v in all_videos:
+            if self.is_video_locked(v):
+                continue
+            if p_id_str:
+                uploaded_ids = self.get_uploaded_page_ids(v)
+                if p_id_str in uploaded_ids:
+                    continue
+            else:
+                is_dup, _ = self.is_already_uploaded(v)
+                if is_dup:
+                    continue
+            candidates.append(v)
+
+        return candidates
+
+    def get_next_video_for_page(self, page_config: Dict[str, Any]) -> Optional[str]:
+        """
+        Selects the next video for a specific page based on its pick_mode:
+        - "sequential": sorts candidates naturally (e.g. EP01, EP02...) and picks the first.
+        - "random": randomly shuffles candidates and picks one.
+        Acquires an exclusive lock on the chosen video before returning.
+        """
+        page_id = str(page_config.get("page_id", "")).strip()
+        v_folder = page_config.get("video_folder") or self.video_folder
+        pick_mode = str(page_config.get("pick_mode", "random")).lower().strip()
+
+        candidates = self.get_candidate_videos_for_page(page_id=page_id, video_folder=v_folder)
+        if not candidates:
+            return None
+
+        if pick_mode == "sequential":
+            # Natural sort by filename (EP1, EP2, ..., EP10, EP11)
+            candidates.sort(key=lambda p: natural_sort_key(os.path.basename(p)))
+        else:
+            # Random pick mode
+            random.shuffle(candidates)
+
+        for cand in candidates:
+            if self.acquire_video_lock(cand):
+                return cand
+
+        return None
+
     def get_pending_videos(self, target_folder: Optional[str] = None, completed_folder: Optional[str] = None, target_pages: Optional[list] = None) -> List[str]:
         """
-        Returns list of video paths that need uploading.
-        
-        If target_pages is provided, also scans completed folder for videos
-        that were uploaded to some pages but not all (backfill for new pages).
+        Returns list of video paths that need uploading from the incoming video folder.
+        Never scans completed_folder to prevent backfilling duplicates.
         """
         all_videos = self.scan_videos(target_folder=target_folder)
         pending = []
 
         if target_pages:
-            # Smart mode: check per-page status
             for v in all_videos:
                 needs, _, _ = self.needs_upload_to_pages(v, target_pages, completed_folder)
                 if needs:
                     pending.append(v)
-
-            # Also check completed folder for backfill candidates
-            c_folder = completed_folder or self.completed_folder
-            if c_folder and os.path.exists(c_folder):
-                for f in sorted(os.listdir(c_folder)):
-                    fp = os.path.join(c_folder, f)
-                    if not os.path.isfile(fp):
-                        continue
-                    ext = os.path.splitext(f)[1].lower()
-                    if ext not in self.VIDEO_EXTS and ext not in self.IMAGE_EXTS:
-                        continue
-                    # Check if this completed file needs upload to new pages
-                    needs, _, _ = self.needs_upload_to_pages(fp, target_pages)
-                    if needs and fp not in pending:
-                        pending.append(fp)
         else:
-            # Legacy mode: simple duplicate check
             for v in all_videos:
                 is_dup, _ = self.is_already_uploaded(v, completed_folder=completed_folder)
                 if not is_dup:
                     pending.append(v)
 
         return pending
+
 
     def mark_completed(self, video_path: str, meta: Optional[Dict[str, Any]] = None, custom_dest_folder: Optional[str] = None):
         """
