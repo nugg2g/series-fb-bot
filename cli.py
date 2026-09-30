@@ -5,6 +5,10 @@ import json
 import time
 import threading
 
+# Ensure working directory is always the script directory
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+os.chdir(SCRIPT_DIR)
+
 if sys.platform == "win32":
     try:
         sys.stdout.reconfigure(encoding='utf-8')
@@ -17,7 +21,7 @@ from core.browser_manager import BrowserManager
 from core.queue_manager import QueueManager
 from core.web_monitor import start_web_monitor
 
-CONFIG_PATH = os.path.abspath("./config.json")
+CONFIG_PATH = os.path.join(SCRIPT_DIR, "config.json")
 
 def load_config() -> dict:
     if os.path.exists(CONFIG_PATH):

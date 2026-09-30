@@ -100,6 +100,10 @@ class BrowserManager:
         self._cleanup_stale_locks()
         is_headless = False if force_headed else self.headless
 
+        # Linux server auto-fallback: If running on headless Linux server without DISPLAY, force headless=True
+        if sys.platform.startswith("linux") and not os.environ.get("DISPLAY"):
+            is_headless = True
+
         self.playwright = sync_playwright().start()
         
         args = [
