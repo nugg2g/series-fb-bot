@@ -3,8 +3,14 @@ import time
 import random
 import glob
 import threading
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Dict, Any, Callable, Optional, List
+
+ICT_TZ = timezone(timedelta(hours=7))
+
+def get_lao_now() -> datetime:
+    """Returns the current datetime in Laos/Thailand timezone (ICT, UTC+7)."""
+    return datetime.now(timezone.utc).astimezone(ICT_TZ)
 
 from core.queue_manager import QueueManager
 from core.caption_generator import CaptionGenerator
@@ -36,7 +42,7 @@ class ReelUploadEngine:
         self._thread: Optional[threading.Thread] = None
 
     def log(self, msg: str):
-        timestamp = datetime.now().strftime("%H:%M:%S")
+        timestamp = get_lao_now().strftime("%H:%M:%S")
         self.log_cb(f"[{timestamp}] {msg}")
         try:
             WEB_STATE.add_log(msg)
@@ -351,7 +357,7 @@ class ReelUploadEngine:
                             next_page = g_pages[p_idx] if p_idx < len(g_pages) else {}
                             next_name = next_page.get("page_name", "Page ຖັດໄປ")
                             self.log(f"⏳ ພັກລໍຖ້າ {page_delay_mins} ນາທີ ກ່ອນອັບໂຫຼດໄປຍັງ '{next_name}' (ສຸ່ມ 3-10 ນາທີ ເພື່ອປ້ອງກັນ Spam)...")
-                            target_page_dt = datetime.now() + timedelta(seconds=page_delay_secs)
+                            target_page_dt = get_lao_now() + timedelta(seconds=page_delay_secs)
                             target_page_str = target_page_dt.strftime("%H:%M:%S")
 
                             for _s in range(page_delay_secs):
@@ -422,7 +428,7 @@ class ReelUploadEngine:
                         retry_delay = round(random.uniform(2, 5), 1)
                         retry_secs = int(retry_delay * 60)
                         self.log(f"⏳ ພັກ {retry_delay} ນາທີ ກ່ອນ Retry...")
-                        target_retry_dt = datetime.now() + timedelta(seconds=retry_secs)
+                        target_retry_dt = get_lao_now() + timedelta(seconds=retry_secs)
                         target_retry_str = target_retry_dt.strftime("%H:%M:%S")
 
                         for _s in range(retry_secs):
@@ -560,7 +566,7 @@ class ReelUploadEngine:
                             self.log(f"⏳ ພັກລໍຖ້າ (Delay) {delay_mins} ນາທີ ({round(delay_mins/60, 1)} ຊົ່ວໂມງ) ເພື່ອປ້ອງກັນ Facebook Spam...")
 
                         total_seconds = int(delay_mins * 60)
-                        target_dt = datetime.now() + timedelta(seconds=total_seconds)
+                        target_dt = get_lao_now() + timedelta(seconds=total_seconds)
                         target_time_str = target_dt.strftime("%H:%M:%S")
 
                         next_vids = self.queue_mgr.get_pending_videos()

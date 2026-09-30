@@ -22,10 +22,16 @@ import hashlib
 import hmac
 import re
 import atexit
-from datetime import datetime
+from datetime import datetime, timezone, timedelta
 from typing import Dict, Any, Optional, Callable, List, Tuple
 import requests
 from flask import Flask, jsonify, request, Response, render_template_string
+
+ICT_TZ = timezone(timedelta(hours=7))
+
+def get_lao_now() -> datetime:
+    """Returns the current datetime in Laos/Thailand timezone (ICT, UTC+7)."""
+    return datetime.now(timezone.utc).astimezone(ICT_TZ)
 
 if sys.platform == "win32":
     try:
@@ -222,7 +228,7 @@ class MonitorState:
                 "countdown_str": self.countdown_str,
                 "next_post_time": self.next_post_time,
                 "next_target": self.next_target,
-                "server_time": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                "server_time": get_lao_now().strftime("%Y-%m-%d %H:%M:%S"),
                 "updated_at": time.time(),
                 "pid": os.getpid()
             }
@@ -304,7 +310,7 @@ class MonitorState:
                 "next_post_time": self.next_post_time,
                 "next_target": self.next_target,
                 "config_summary": config_summary,
-                "server_time": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                "server_time": get_lao_now().strftime("%Y-%m-%d %H:%M:%S")
             }
 
 
@@ -1628,15 +1634,20 @@ MOBILE_UI_HTML = """<!DOCTYPE html>
     }
 
     async function skipDelayAction() {
-      if (confirm('⚡ ທ່ານຕ້ອງການຂ້າມເວລາພັກລໍຖ້າ ແລະ ອັບໂຫຼດຄລິບຖັດໄປທັນທີເລີຍຫຼືບໍ່?')) {
-        await triggerAction('skip_delay');
+      const btn = document.querySelector('[onclick="skipDelayAction()"]');
+      if (btn) {
+        btn.disabled = true;
+        btn.innerHTML = '<span>⏳ ກຳລັງເລີ່ມອັບໂຫຼດ...</span>';
+      }
+      await triggerAction('skip_delay');
+      if (btn) {
+        btn.disabled = false;
+        btn.innerHTML = '<span>⚡ ໂພສທັນທີ (Upload Now)</span>';
       }
     }
 
     function confirmCTA() {
-      if (confirm('ທ່ານຕ້ອງການໃຫ້ AI ສ້າງຮູບໃໝ່ ແລະ ໂພສເຊີນຊວນຕິດຕາມเพจ Facebook ດຽວນີ້ເລີຍຫຼືບໍ່?')) {
-        triggerAction('post_cta');
-      }
+      triggerAction('post_cta');
     }
 
     async function switchActivePage(groupId, pageId, encName) {
