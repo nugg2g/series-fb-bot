@@ -191,7 +191,9 @@ class ReelsUploader:
             self.emit_progress(30, f"ກຳລັງອັບໂຫຼດວິດີໂອຂຶ້ນ Meta Business Suite (ຂະໜາດ {v_size_mb:.1f} MB, timeout {dynamic_timeout}s)...")
             upload_ok = self.wait_for_video_ready(max_wait_seconds=dynamic_timeout)
             if not upload_ok:
-                self.log("⚠️ ການອັບໂຫຼດອາດໃຊ້ເວລາດົນ ແຕ່ຈະລອງກົດຖັດໄປ...")
+                self.log("❌ ວິດີໂອບໍ່ສາມາດອັບໂຫຼດຂຶ້ນ Meta ໄດ້ຄົບ 100% (ປຸ່ມ Next ຍັງ disabled). ຈະຢຸດຮອບນີ້ ແລະ ລອງໃໝ່ຄັ້ງຕໍ່ໄປ.")
+                self.save_screenshot(f"upload_incomplete_{os.path.splitext(filename)[0]}")
+                raise Exception(f"ວິດີໂອ processing ບໍ່ສຳເລັດພາຍໃນ {dynamic_timeout}s (ປຸ່ມ Next ຍັງ disabled)")
 
             # Check and enable AI-generated content label in Step 1 if requested
             if self.config.get("mark_as_ai_content", True):
@@ -648,6 +650,12 @@ class ReelsUploader:
 
             time.sleep(2)
 
+        # Timeout expired — video did NOT finish uploading
+        elapsed = int(time.time() - start)
+        self.log(f"❌ wait_for_video_ready() ໝົດເວລາ Timeout ({elapsed}s / {max_wait_seconds}s). Progress ສຸດທ້າຍ: {last_logged_pct or 'N/A'}. ປຸ່ມ Next ຍັງ disabled.")
+        self.save_screenshot("timeout_video_not_ready")
+        return False
+
     def set_reel_cover(self, cover_image_path: str) -> bool:
         """
         Uploads custom 9:16 high-CTR cover image in Meta Business Suite Reels Composer.
@@ -726,41 +734,106 @@ class ReelsUploader:
                 return b
         return None
 
-    def click_next_button(self):
+    def click_next_button(self, max_wait_enabled: int = 120):
+        """Click Next button with strict verification that it's enabled and page transitions."""
         btn = self.get_next_button()
-        if btn:
-            for _ in range(15):
-                is_disabled = btn.evaluate("""el => {
-                    let curr = el;
-                    while (curr && curr !== document.body) {
-                        if (curr.getAttribute('aria-disabled') === 'true' || curr.hasAttribute('disabled')) {
-                            return true;
-                        }
-                        curr = curr.parentElement;
-                    }
-                    return false;
-                }""")
-                if not is_disabled:
-                    break
-                time.sleep(1)
+        if not btn:
+            raise Exception("ไม่พบปุ่ม 'Next' / 'ถัดไป'")
 
-            clicked = False
+        # Capture current step indicator text before clicking (for transition verification)
+        pre_click_step = None
+        try:
+            pre_click_step = self.page.evaluate("""() => {
+                // Look for step indicator text like "สร้าง", "Create", "แก้ไข", "Edit", etc.
+                let stepHeaders = document.querySelectorAll('h2, h3, [role="heading"]');
+                for (let h of stepHeaders) {
+                    let t = (h.innerText || '').trim();
+                    if (t && t.length < 50) return t;
+                }
+                return null;
+            }""")
+        except Exception:
+            pass
+
+        # Wait for Next button to become enabled (up to max_wait_enabled seconds)
+        start_wait = time.time()
+        still_disabled = True
+        for attempt in range(max_wait_enabled):
+            is_disabled = btn.evaluate("""el => {
+                let curr = el;
+                while (curr && curr !== document.body) {
+                    if (curr.getAttribute('aria-disabled') === 'true' || curr.hasAttribute('disabled')) {
+                        return true;
+                    }
+                    curr = curr.parentElement;
+                }
+                return false;
+            }""")
+            if not is_disabled:
+                still_disabled = False
+                break
+            if attempt % 15 == 0 and attempt > 0:
+                elapsed = int(time.time() - start_wait)
+                self.log(f"⏳ ປຸ່ມ Next ຍັງ disabled... ລໍຖ້າແລ້ວ {elapsed}s/{max_wait_enabled}s")
+            time.sleep(1)
+
+        if still_disabled:
+            elapsed = int(time.time() - start_wait)
+            self.save_screenshot("next_btn_still_disabled")
+            raise Exception(f"ປຸ່ມ 'Next/ถัดไป' ຍັງ disabled ຫຼັງລໍຖ້າ {elapsed}s. ວິດີໂອອາດຍັງ processing ຢູ່.")
+
+        # Click the button
+        clicked = False
+        try:
+            btn.click(timeout=5000)
+            clicked = True
+        except Exception:
             try:
-                btn.click(timeout=5000)
+                btn.click(force=True, timeout=5000)
                 clicked = True
             except Exception:
                 try:
-                    btn.click(force=True, timeout=5000)
+                    btn.evaluate("el => el.click()")
                     clicked = True
                 except Exception:
-                    try:
-                        btn.evaluate("el => el.click()")
-                        clicked = True
-                    except Exception:
-                        pass
-            time.sleep(2)
-        else:
-            raise Exception("ไม่พบปุ่ม 'Next' / 'ถัดไป'")
+                    pass
+
+        if not clicked:
+            raise Exception("ບໍ່ສາມາດກົດປຸ່ມ Next ໄດ້ (ທຸກວິທີລົ້ມເຫຼວ)")
+
+        time.sleep(3)
+
+        # Verify step transition: check that the page actually changed
+        # (Next button should disappear briefly or step heading should change)
+        transition_ok = False
+        for _ in range(10):
+            try:
+                post_step = self.page.evaluate("""() => {
+                    let stepHeaders = document.querySelectorAll('h2, h3, [role="heading"]');
+                    for (let h of stepHeaders) {
+                        let t = (h.innerText || '').trim();
+                        if (t && t.length < 50) return t;
+                    }
+                    return null;
+                }""")
+                # If step heading changed, transition succeeded
+                if post_step and pre_click_step and post_step != pre_click_step:
+                    transition_ok = True
+                    break
+            except Exception:
+                pass
+            # Also check if Publish/Share button appeared (means we're on Step 3)
+            try:
+                pub_btn = self.get_publish_button()
+                if pub_btn and pub_btn.is_visible():
+                    transition_ok = True
+                    break
+            except Exception:
+                pass
+            time.sleep(1)
+
+        if not transition_ok:
+            self.log("⚠️ ກົດ Next ແລ້ວ ແຕ່ບໍ່ແນ່ໃຈວ່າ Step ປ່ຽນ (ອາດປົກກະຕິຖ້າ Step 1→2). ສືບຕໍ່...")
 
     def set_schedule(self, target_time: datetime):
         """Selects schedule radio/button and inputs date/time"""
