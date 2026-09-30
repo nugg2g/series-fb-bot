@@ -15,7 +15,7 @@
   "page_groups": [
     {
       "group_id": "group_shared_3pages",
-      "group_name": "ກຸ່ມ 3 Pages (ເນື້ອຫາຮ່ວມກັນ)",
+      "group_name": "ກຸ່ມ 4 Pages (ເນື້ອຫາຮ່ວມກັນ)",
       "content_type": "china_drama",
       "video_folder": "./videos/shared",
       "completed_folder": "./completed/shared",
@@ -47,6 +47,10 @@
         },
         {
           "page_name": "Page 3",
+          "page_id": ""
+        },
+        {
+          "page_name": "Page 4",
           "page_id": ""
         }
       ]
