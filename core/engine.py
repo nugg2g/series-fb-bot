@@ -351,10 +351,10 @@ class ReelUploadEngine:
                             except Exception as e:
                                 self.log(f"Warning recording page success: {e}")
 
-                        if p_idx < len(g_pages) and self._is_running:
+                        if p_idx < len(pages_todo) and self._is_running:
                             page_delay_mins = round(random.uniform(3, 10), 1)
                             page_delay_secs = int(page_delay_mins * 60)
-                            next_page = g_pages[p_idx] if p_idx < len(g_pages) else {}
+                            next_page = pages_todo[p_idx] if p_idx < len(pages_todo) else {}
                             next_name = next_page.get("page_name", "Page ຖັດໄປ")
                             self.log(f"⏳ ພັກລໍຖ້າ {page_delay_mins} ນາທີ ກ່ອນອັບໂຫຼດໄປຍັງ '{next_name}' (ສຸ່ມ 3-10 ນາທີ ເພື່ອປ້ອງກັນ Spam)...")
                             target_page_dt = get_lao_now() + timedelta(seconds=page_delay_secs)
