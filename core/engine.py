@@ -117,14 +117,21 @@ class ReelUploadEngine:
 
     def reload_config_from_disk(self):
         """Hot-reloads configuration directly from config.json without requiring program restart."""
-        cfg_path = os.path.abspath("./config.json")
-        if os.path.exists(cfg_path):
-            try:
-                with open(cfg_path, "r", encoding="utf-8") as f:
-                    new_cfg = json.load(f)
-                    self.config.update(new_cfg)
-            except Exception:
-                pass
+        candidates = [
+            os.path.abspath("./config.json"),
+            os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "config.json")
+        ]
+        for cfg_path in candidates:
+            if os.path.exists(cfg_path):
+                try:
+                    with open(cfg_path, "r", encoding="utf-8") as f:
+                        new_cfg = json.load(f)
+                        self.config.update(new_cfg)
+                        self.queue_mgr.config = self.config
+                        self.caption_gen.config = self.config
+                    break
+                except Exception:
+                    pass
 
     def _get_execution_groups(self) -> List[Dict[str, Any]]:
         self.reload_config_from_disk()
