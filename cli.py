@@ -172,6 +172,15 @@ def main():
                         print("✅ [WebMonitor] Updated and dynamically applied new settings to running bot!")
                     except Exception as ex:
                         print(f"⚠️ [WebMonitor] Error updating settings: {ex}")
+                elif action == "restart":
+                    print("🔄 [WebMonitor] Restart command received! Restarting bot process...")
+                    try:
+                        engine.stop()
+                    except Exception:
+                        pass
+                    time.sleep(2)
+                    # Re-exec the same process to reload all code from disk
+                    os.execv(sys.executable, [sys.executable] + sys.argv)
 
             try:
                 start_web_monitor(config, action_callback=handle_remote_action)

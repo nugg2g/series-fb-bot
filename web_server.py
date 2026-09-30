@@ -1711,7 +1711,8 @@ def api_action(action_name: str):
         "update_page_id": f"💾 ບັນທຶກ Page ID ໃໝ່: {payload.get('page_id', '')} ແລ້ວ",
         "update_settings": "⚙️ ບັນທຶກການຕັ້ງຄ່າສຳເລັດແລ້ວ",
         "retry_failed": "🔄 Reset ວິດີໂອທີ່ຜິດພາດໃຫ້ນຳກັບມາອັບໂຫຼດໃໝ່ແລ້ວ",
-        "clear_failed": "🧹 ລ້າງປະຫວັດທີ່ຜິດພາດສຳເລັດແລ້ວ"
+        "clear_failed": "🧹 ລ້າງປະຫວັດທີ່ຜິດພາດສຳເລັດແລ້ວ",
+        "restart": "🔄 ສັ່ງ Restart Bot ສຳເລັດ (Bot ຈະ reload ໂຄ້ດໃໝ່ທັງໝົດ)"
     }
 
     msg = lao_msgs.get(action_clean, f"ຮັບຄຳສັ່ງ '{action_clean}' ແລ້ວ")
