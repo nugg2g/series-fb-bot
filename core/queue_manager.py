@@ -15,6 +15,53 @@ def natural_sort_key(s: str) -> list:
     return [int(text) if text.isdigit() else text.lower() for text in re.split(r'(\d+)', str(s))]
 
 
+def safe_print(msg: str):
+    try:
+        print(msg)
+    except Exception:
+        try:
+            print(msg.encode('ascii', errors='replace').decode('ascii'))
+        except Exception:
+            pass
+
+
+EP_PATTERNS = [
+    # [EP.01], [EP 01], (EP.1), EP01, EP.01, EP-01, EP 1, Episode 1, ตอนที่ 1, ตอน 1, ຕອນທີ 1, Part 1, Pt 1, etc.
+    r'(?i)(?:\[|\(|\b)(?:ep|episode|ตอนที่|ตอน|ຕອນທີ|ຕອນ|part|pt)[\s\._\-#]*(\d+)(?:\]|\)|\b)',
+    r'(?i)\bE(\d{1,4})\b',
+]
+
+def extract_series_and_episode(filename: str) -> Tuple[Optional[str], Optional[int]]:
+    """
+    Extracts (series_name, episode_number) from filename if present.
+    E.g.:
+    '[เมียขัดดอก] [EP.01] - เมื่อบัวถูกส่งมาเป็นเมียขัดดอก คืนแรก.mp4' -> ('เมียขัดดอก', 1)
+    'ซีรีย์จีน EP 3 ตอนจบ.mp4' -> ('ซีรีย์จีน', 3)
+    'ตอนที่ 02.mp4' -> (None, 2)
+    'ຕອນທີ 1.mp4' -> (None, 1)
+    'แอร์สาว.mp4' -> (None, None)
+    """
+    base = os.path.basename(filename)
+    root, _ = os.path.splitext(base)
+
+    for pat in EP_PATTERNS:
+        m = re.search(pat, root)
+        if m:
+            try:
+                ep_num = int(m.group(1))
+            except (ValueError, TypeError):
+                continue
+            prefix = root[:m.start()].strip(' []()-_|')
+            series_name = prefix if len(prefix) >= 2 else None
+            return series_name, ep_num
+
+    return None, None
+
+def extract_episode_number(filename: str) -> Optional[int]:
+    _, ep = extract_series_and_episode(filename)
+    return ep
+
+
 class QueueManager:
     VIDEO_EXTENSIONS = ('.mp4', '.mov', '.mkv', '.avi', '.webm', '.flv', '.wmv')
     IMAGE_EXTENSIONS = ('.jpg', '.jpeg', '.png', '.webp')
@@ -272,6 +319,47 @@ class QueueManager:
 
         return uploaded_ids
 
+    def get_uploaded_episodes_for_page(self, page_id: str, video_folder: Optional[str] = None, series_name: Optional[str] = None) -> set:
+        """
+        Returns set of episode numbers (int) that have already been uploaded
+        to the specified page_id from the given video_folder or matching series_name.
+        """
+        uploaded_eps = set()
+        p_id_str = str(page_id).strip()
+        files_map = self.history.get("files", {})
+
+        norm_target_folder = os.path.normpath(video_folder).lower() if video_folder else None
+
+        for fname, rec in files_map.items():
+            if rec.get("status") not in ("success", "in_progress"):
+                continue
+
+            target_pages = rec.get("meta", {}).get("target_pages", [])
+            was_uploaded = False
+            for tp in target_pages:
+                if tp.get("success") and str(tp.get("page_id", "")).strip() == p_id_str:
+                    was_uploaded = True
+                    break
+
+            if not was_uploaded:
+                continue
+
+            # Check if this record belongs to the same folder or series
+            orig_path = rec.get("original_path", "")
+            same_folder = False
+            if norm_target_folder and orig_path:
+                orig_dir = os.path.normpath(os.path.dirname(orig_path)).lower()
+                same_folder = (orig_dir == norm_target_folder)
+
+            rec_series, rec_ep = extract_series_and_episode(fname)
+            same_series = bool(series_name and rec_series and rec_series.lower() == series_name.lower())
+
+            if same_folder or same_series or (not norm_target_folder and not series_name):
+                if rec_ep is not None:
+                    uploaded_eps.add(rec_ep)
+
+        return uploaded_eps
+
     def record_page_success(self, video_path: str, page_info: dict, meta: Optional[dict] = None):
         """Immediately records that a video was successfully uploaded to a specific page."""
         basename = os.path.basename(video_path)
@@ -369,14 +457,18 @@ class QueueManager:
 
         return candidates
 
-    def get_next_video_for_page(self, page_config: Dict[str, Any]) -> Optional[str]:
+    def get_next_video_for_page(self, page_config: Dict[str, Any], log_cb: Optional[Any] = None) -> Optional[str]:
         """
         Selects the next video for a specific page based on its pick_mode:
         - "sequential": sorts candidates naturally (e.g. EP01, EP02...) and picks the first.
+          Guards against out-of-order episodes:
+          If the first available episode is > 1 (e.g. EP 3), but EP 1 has not been uploaded yet,
+          and EP 1 is not in the folder, it waits for EP 1!
         - "random": randomly shuffles candidates and picks one.
         Acquires an exclusive lock on the chosen video before returning.
         """
         page_id = str(page_config.get("page_id", "")).strip()
+        page_name = page_config.get("page_name", page_id)
         v_folder = page_config.get("video_folder") or self.video_folder
         pick_mode = str(page_config.get("pick_mode", "random")).lower().strip()
 
@@ -387,6 +479,52 @@ class QueueManager:
         if pick_mode == "sequential":
             # Natural sort by filename (EP1, EP2, ..., EP10, EP11)
             candidates.sort(key=lambda p: natural_sort_key(os.path.basename(p)))
+
+            # Sequential Episode Guard:
+            first_cand = candidates[0]
+            series_name, first_ep = extract_series_and_episode(first_cand)
+
+            if first_ep is not None and first_ep > 1:
+                uploaded_eps = self.get_uploaded_episodes_for_page(
+                    page_id=page_id,
+                    video_folder=v_folder,
+                    series_name=series_name
+                )
+
+                # Check 1: Has EP 1 been uploaded?
+                if 1 not in uploaded_eps:
+                    series_info = f"'{series_name}' " if series_name else ""
+                    msg = (
+                        f"⏳ [Sequential Guard] Page '{page_name}': ພົບ {series_info}'{os.path.basename(first_cand)}' "
+                        f"ເປັນ EP {first_ep} ແຕ່ຍັງບໍ່ເຄີຍອັບໂຫຼດ EP 1 ແລະ ບໍ່ມີໄຟລ໌ EP 1 ໃນໂຟນເດີ! "
+                        f"ລະບົບຈະລໍຖ້າໄຟລ໌ EP 1 ກ່ອນ (ຂ້າມການອັບໂຫຼດຊົ່ວຄາວ)..."
+                    )
+                    if log_cb:
+                        try:
+                            log_cb(msg)
+                        except Exception:
+                            safe_print(msg)
+                    else:
+                        safe_print(msg)
+                    return None
+
+                # Check 2: If EP 1 was uploaded, check if immediately preceding episode (first_ep - 1) is uploaded
+                prev_ep = first_ep - 1
+                if prev_ep not in uploaded_eps:
+                    series_info = f"'{series_name}' " if series_name else ""
+                    msg = (
+                        f"⏳ [Sequential Guard] Page '{page_name}': ພົບ {series_info}'{os.path.basename(first_cand)}' "
+                        f"ເປັນ EP {first_ep} ແຕ່ຍັງບໍ່ທັນໄດ້ອັບໂຫຼດ EP {prev_ep}! "
+                        f"ລະບົບຈະລໍຖ້າໄຟລ໌ EP {prev_ep} ກ່ອນ..."
+                    )
+                    if log_cb:
+                        try:
+                            log_cb(msg)
+                        except Exception:
+                            safe_print(msg)
+                    else:
+                        safe_print(msg)
+                    return None
         else:
             # Random pick mode
             random.shuffle(candidates)

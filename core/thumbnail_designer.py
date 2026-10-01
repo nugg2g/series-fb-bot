@@ -26,7 +26,23 @@ except ImportError:
 
 
 def get_thai_font(size: int, bold: bool = True) -> ImageFont.FreeTypeFont:
-    """Finds best available Thai font on Windows or returns default."""
+    """Finds best available Thai font on Linux or Windows or returns default."""
+    # Priority 1: Linux system fonts (Dell PowerEdge Ubuntu)
+    linux_fonts = [
+        "/usr/share/fonts/truetype/tlwg/Garuda-Bold.ttf",
+        "/usr/share/fonts/truetype/tlwg/Loma-Bold.ttf",
+        "/usr/share/fonts/truetype/noto/NotoSansThai-Bold.ttf",
+        "/usr/share/fonts/truetype/tlwg/Garuda.ttf",
+        "/usr/share/fonts/truetype/noto/NotoSansThai-Regular.ttf",
+    ]
+    for p in linux_fonts:
+        if os.path.exists(p):
+            try:
+                return ImageFont.truetype(p, size)
+            except Exception:
+                continue
+
+    # Priority 2: Windows fonts
     windir = os.environ.get("WINDIR", "C:\\Windows")
     font_dir = os.path.join(windir, "Fonts")
     
@@ -87,28 +103,57 @@ def build_flux_prompt(title: str, platform: str = "youtube") -> str:
     )
 
 
-def extract_video_frame(video_path: str, target_w: int, target_h: int) -> Optional[Image.Image]:
-    """Fallback: extracts a sharp frame from the actual video if available."""
+def extract_video_frame(video_path: str, target_w: int = 720, target_h: int = 1280) -> Optional[Image.Image]:
+    """
+    Extracts the highest-contrast, sharpest, most cinematic keyframe from the actual drama video.
+    Samples across 10%, 20%, 30%, 40%, 50%, 60%, 70% of video duration.
+    Applies cinematic color saturation, contrast, and sharpness enhancements.
+    """
     if not video_path or not os.path.exists(video_path):
         return None
     try:
         import cv2
+        import numpy as np
+        from PIL import ImageEnhance
+
         cap = cv2.VideoCapture(video_path)
         if not cap.isOpened():
             return None
         total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
-        fps = cap.get(cv2.CAP_PROP_FPS) or 25
-        # Pick frame around 5-10 seconds in (avoids black intro)
-        target_f = min(int(fps * 8), max(0, total_frames // 4))
-        cap.set(cv2.CAP_PROP_POS_FRAMES, target_f)
-        ret, frame = cap.read()
+        if total_frames <= 0:
+            cap.release()
+            return None
+
+        sample_points = [0.10, 0.20, 0.30, 0.40, 0.50, 0.60, 0.70]
+        best_frame = None
+        best_score = -1.0
+
+        for frac in sample_points:
+            f_idx = int(total_frames * frac)
+            cap.set(cv2.CAP_PROP_POS_FRAMES, f_idx)
+            ret, frame = cap.read()
+            if not ret or frame is None:
+                continue
+            gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+            mean_val = float(np.mean(gray))
+            if mean_val < 38 or mean_val > 235:
+                continue
+            lap_var = float(cv2.Laplacian(gray, cv2.CV_64F).var())
+            std_val = float(np.std(gray))
+            score = std_val * (lap_var ** 0.5)
+            if score > best_score:
+                best_score = score
+                best_frame = frame
+
         cap.release()
-        if ret and frame is not None:
-            # Convert BGR to RGB
-            rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+        if best_frame is not None:
+            rgb = cv2.cvtColor(best_frame, cv2.COLOR_BGR2RGB)
             im = Image.fromarray(rgb)
-            # Crop/resize to target dimensions
-            return im.resize((target_w, target_h), Image.Resampling.LANCZOS)
+            # Enhance for movie poster punch
+            enh_col = ImageEnhance.Color(im).enhance(1.28)
+            enh_con = ImageEnhance.Contrast(enh_col).enhance(1.22)
+            enh_sharp = ImageEnhance.Sharpness(enh_con).enhance(1.25)
+            return enh_sharp.resize((target_w, target_h), Image.Resampling.LANCZOS)
     except Exception as e:
         print(f"[Thumbnail Designer] Note: Frame extraction fallback failed: {e}")
     return None
@@ -321,7 +366,8 @@ def create_high_ctr_thumbnail(
         width, height = 1280, 720
 
     if not output_path:
-        out_dir = Path("Z:/Projects/YouTube Shorts Auto Bot/data/thumbnails")
+        base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        out_dir = Path(base_dir) / "data" / "thumbnails"
         out_dir.mkdir(parents=True, exist_ok=True)
         safe_name = f"thumb_{target_platform}_{int(time.time())}_{random.randint(100, 999)}.jpg"
         output_path = str(out_dir / safe_name)
@@ -330,7 +376,25 @@ def create_high_ctr_thumbnail(
 
     print(f"[Thumbnail Designer] 🎬 Generating {target_platform.upper()} ({width}x{height}) cover for: '{clean_title}'")
 
-    # Step 1: AI Background Artwork via Flux
+    # Priority 1 for Facebook Reels (9:16): Hollywood-grade Drama Poster via Gemini Web
+    if target_platform == "facebook":
+        try:
+            from core.gemini_web_poster import GeminiWebPoster
+            poster_bot = GeminiWebPoster()
+            if os.path.exists(poster_bot.profile_dir):
+                print(f"[Thumbnail Designer] 🌟 Attempting Gemini Web 8K Poster for: '{clean_title}'...")
+                gemini_poster = poster_bot.generate_poster(
+                    drama_title=clean_title,
+                    output_path=output_path,
+                    headless=True
+                )
+                if gemini_poster and os.path.exists(gemini_poster) and os.path.getsize(gemini_poster) > 10000:
+                    print(f"[Thumbnail Designer] 🏆 Gemini Web Poster created successfully: {gemini_poster}")
+                    return gemini_poster
+        except Exception as e_gem:
+            print(f"[Thumbnail Designer] ℹ️ Gemini Web Poster note ({e_gem}), falling back to Flux/Frame...")
+
+    # Step 1: AI Background Artwork via Flux (or fallback for YouTube / when Gemini is offline)
     flux_prompt = build_flux_prompt(clean_title, platform=target_platform)
     raw_bg_path = output_path + ".raw.jpg"
     success = download_flux_artwork(

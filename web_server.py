@@ -1444,6 +1444,26 @@ MOBILE_UI_HTML = """<!DOCTYPE html>
       }
     }
 
+    async function togglePipelinePickMode(pageId, currentMode) {
+      const nextMode = (currentMode === 'random') ? 'sequential' : 'random';
+      try {
+        const res = await fetch('/api/action/update_pipeline_page_pick_mode', {
+          method: 'POST',
+          headers: getAuthHeaders(),
+          body: JSON.stringify({ page_id: pageId, pick_mode: nextMode })
+        });
+        if (res.status === 401) { lockApp(); return; }
+        const json = await res.json();
+        if (json.success) {
+          fetchState();
+        } else {
+          alert('ຜິດພາດ: ' + (json.message || 'ບໍ່ສາມາດປ່ຽນໂໝດໄດ້'));
+        }
+      } catch (e) {
+        alert('ຜິດພາດ: ' + e);
+      }
+    }
+
     async function togglePipelinePage(pageId) {
       try {
         const res = await fetch('/api/action/toggle_pipeline_page', {
@@ -1494,8 +1514,10 @@ MOBILE_UI_HTML = """<!DOCTYPE html>
               <div style="font-weight: 800; font-size: 13px; color: ${isEnabled ? '#fff' : '#64748b'};">
                 ${isActive ? '⚡ ' : ''}${p.page_name || 'Page ' + (pIdx+1)}
               </div>
-              <div style="display: flex; gap: 4px;">
-                <span style="font-size: 10px; background: #1c2236; padding: 2px 7px; border-radius: 10px; color: ${modeColor}; font-weight: 700;">${modeBadge}</span>
+              <div style="display: flex; gap: 4px; align-items: center;">
+                <button class="btn-sm" style="font-size: 10px; background: #1c2236; border: 1px solid ${modeColor}; padding: 2px 8px; border-radius: 10px; color: ${modeColor}; font-weight: 700; cursor: pointer; display: inline-flex; align-items: center; gap: 3px;" onclick="togglePipelinePickMode('${p.page_id}', '${p.pick_mode || 'random'}')" title="ກົດເພື່ອປ່ຽນໂໝດ (ສຸ່ມ ↔ ຕາມລຳດັບ)">
+                  ${modeBadge} 🔄
+                </button>
                 <span style="font-size: 10px; background: #1c2236; padding: 2px 7px; border-radius: 10px; color: #f59e0b; font-weight: 700;">${catName}</span>
               </div>
             </div>
@@ -1506,7 +1528,10 @@ MOBILE_UI_HTML = """<!DOCTYPE html>
               <span style="font-size: 11px; font-weight: 700; color: ${isEnabled ? '#10b981' : '#64748b'};">
                 ${isEnabled ? '🟢 ເປີດໃຊ້ງານ' : '⚪ ປິດໄວ້'}
               </span>
-              <div class="page-actions" style="gap: 5px;">
+              <div class="page-actions" style="gap: 5px; display: flex; align-items: center; flex-wrap: wrap;">
+                <button class="btn-sm" style="background: rgba(${isRand ? '192, 132, 252' : '56, 189, 248'}, 0.18); border: 1px solid ${isRand ? '#c084fc' : '#38bdf8'}; color: ${isRand ? '#c084fc' : '#38bdf8'}; padding: 3px 8px; font-size: 11px; font-weight: bold; cursor: pointer; border-radius: 5px; display: inline-flex; align-items: center; gap: 3px;" onclick="togglePipelinePickMode('${p.page_id}', '${p.pick_mode || 'random'}')" title="ກົດເພື່ອປ່ຽນໂໝດ ສຸ່ມ / ຕາມລຳດັບ">
+                  ${isRand ? '🔢 ປ່ຽນເປັນ: ຕາມລຳດັບ' : '🎲 ປ່ຽນເປັນ: ສຸ່ມ'}
+                </button>
                 <button class="btn-sm btn-secondary" onclick="togglePipelinePage('${p.page_id}')" title="ເປີດ/ປິດ">${isEnabled ? '⏸️ ປິດ' : '▶️ ເປີດ'}</button>
                 <button class="btn-sm" style="background: #ef4444; color: white;" onclick="deletePipelinePage('${p.page_id}', '${escapeJs(p.page_name)}')" title="ລຶບ Page">🗑️ ລຶບ</button>
               </div>
@@ -1869,7 +1894,7 @@ def api_action(action_name: str):
         # Pass comprehensive settings payload
         pass
 
-    elif action_clean in ["add_pipeline_page", "toggle_pipeline_page", "delete_pipeline_page"]:
+    elif action_clean in ["add_pipeline_page", "toggle_pipeline_page", "delete_pipeline_page", "update_pipeline_page_pick_mode", "toggle_pipeline_page_pick_mode"]:
         if "page_id" in payload:
             raw_id = str(payload.get("page_id", "")).strip()
             clean_id = re.sub(r'[^0-9]', '', raw_id)
@@ -1900,6 +1925,8 @@ def api_action(action_name: str):
         "add_pipeline_page": f"➕ ເພີ່ມ Page '{payload.get('page_name', '')}' ເຂົ້າລະບົບສຳເລັດແລ້ວ!",
         "toggle_pipeline_page": "🔄 ສະຫຼັບສະຖານະ Page ສຳເລັດແລ້ວ",
         "delete_pipeline_page": "🗑️ ລຶບ Page ອອກຈາກລະບົບສຳເລັດແລ້ວ",
+        "update_pipeline_page_pick_mode": "🔄 ປ່ຽນໂໝດ ສຸ່ມ / ຕາມລຳດັບ ສຳເລັດແລ້ວ",
+        "toggle_pipeline_page_pick_mode": "🔄 ປ່ຽນໂໝດ ສຸ່ມ / ຕາມລຳດັບ ສຳເລັດແລ້ວ",
         "update_settings": "⚙️ ບັນທຶກການຕັ້ງຄ່າສຳເລັດແລ້ວ",
         "retry_failed": "🔄 Reset ວິດີໂອທີ່ຜິດພາດໃຫ້ນຳກັບມາອັບໂຫຼດໃໝ່ແລ້ວ",
         "clear_failed": "🧹 ລ້າງປະຫວັດທີ່ຜິດພາດສຳເລັດແລ້ວ",

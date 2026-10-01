@@ -195,7 +195,10 @@ def main():
                         curr = load_config()
                         # Apply fields from payload
                         for k in ["delay_min_minutes", "delay_max_minutes", "randomize_delay",
-                                  "delay_between_posts_minutes", "title_prefix", "caption_template",
+                                  "delay_between_posts_minutes", "pacing_mode",
+                                  "inter_page_delay_min_minutes", "inter_page_delay_max_minutes",
+                                  "round_cooldown_min_hours", "round_cooldown_max_hours",
+                                  "title_prefix", "caption_template",
                                   "tags_count", "hashtag_pool", "mark_as_ai_content",
                                   "strict_page_guard", "auto_watch_new_files", "cta_post_enabled",
                                   "cta_post_interval_reels"]:
@@ -291,6 +294,43 @@ def main():
                         print(f"✅ [WebMonitor] Deleted pipeline page ID: {p_id}")
                     except Exception as ex:
                         print(f"⚠️ [WebMonitor] Error deleting pipeline page: {ex}")
+                elif action == "update_pipeline_page_folder":
+                    try:
+                        p_id = str(payload.get("page_id", "")).strip()
+                        v_folder = str(payload.get("video_folder", "")).strip()
+                        if p_id and v_folder:
+                            curr = load_config()
+                            for p in curr.get("pages_pipeline", []):
+                                if str(p.get("page_id", "")).strip() == p_id:
+                                    p["video_folder"] = v_folder
+                                    break
+                            with open(CONFIG_PATH, "w", encoding="utf-8") as f:
+                                json.dump(curr, f, ensure_ascii=False, indent=2)
+                            config.update(curr)
+                            engine.apply_config(curr)
+                            print(f"✅ [WebMonitor] Updated Page '{p_id}' folder to: {v_folder}")
+                    except Exception as ex:
+                        print(f"⚠️ [WebMonitor] Error updating page folder: {ex}")
+                elif action in ["update_pipeline_page_pick_mode", "toggle_pipeline_page_pick_mode"]:
+                    try:
+                        p_id = str(payload.get("page_id", "")).strip()
+                        new_mode = str(payload.get("pick_mode", "")).strip().lower()
+                        if p_id:
+                            curr = load_config()
+                            for p in curr.get("pages_pipeline", []):
+                                if str(p.get("page_id", "")).strip() == p_id:
+                                    if new_mode in ["random", "sequential"]:
+                                        p["pick_mode"] = new_mode
+                                    else:
+                                        p["pick_mode"] = "sequential" if p.get("pick_mode", "random") == "random" else "random"
+                                    break
+                            with open(CONFIG_PATH, "w", encoding="utf-8") as f:
+                                json.dump(curr, f, ensure_ascii=False, indent=2)
+                            config.update(curr)
+                            engine.apply_config(curr)
+                            print(f"✅ [WebMonitor] Updated Page '{p_id}' pick_mode to: {p.get('pick_mode')}")
+                    except Exception as ex:
+                        print(f"⚠️ [WebMonitor] Error updating pick_mode: {ex}")
                 elif action == "restart":
                     print("🔄 [WebMonitor] Restart command received! Restarting bot process...")
                     try:

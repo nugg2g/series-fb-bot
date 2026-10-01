@@ -184,9 +184,11 @@ class ReelsUploader:
             # Calculate dynamic timeout: min 600s (10 min), +1s per MB for large files (>300MB)
             try:
                 v_size_mb = os.path.getsize(video_path) / (1024 * 1024)
-                dynamic_timeout = max(600, int(v_size_mb * 1.5))
+                # For full-length movies (500MB-1.5GB, 1-3 hours), Meta server-side video transcoding takes 20-35 mins
+                # Allow generous dynamic timeout: 2.5s per MB, min 900s (15m), max 3600s (60m)
+                dynamic_timeout = max(900, min(3600, int(v_size_mb * 2.5)))
             except Exception:
-                dynamic_timeout = 600
+                dynamic_timeout = 900
 
             self.emit_progress(30, f"ກຳລັງອັບໂຫຼດວິດີໂອຂຶ້ນ Meta Business Suite (ຂະໜາດ {v_size_mb:.1f} MB, timeout {dynamic_timeout}s)...")
             upload_ok = self.wait_for_video_ready(max_wait_seconds=dynamic_timeout)
@@ -199,7 +201,8 @@ class ReelsUploader:
             if self.config.get("mark_as_ai_content", True):
                 self.enable_ai_content_label()
 
-            # 5.5 Set Custom 9:16 High-CTR Cover if enabled
+            # 5.5 Prepare Custom 9:16 High-CTR Cover if enabled
+            cover_target = None
             if self.config.get("auto_cover_image", True):
                 try:
                     cover_target = cover_image_path
@@ -217,9 +220,9 @@ class ReelsUploader:
                             video_path=video_path
                         )
                     if cover_target and os.path.exists(cover_target):
-                        self.set_reel_cover(cover_target)
+                        self.log(f"🖼️ ຮູບໜ້າປົກ Cover 9:16 ພ້ອມໃຊ້ງານ: {os.path.basename(cover_target)}")
                 except Exception as ex_cover:
-                    self.log(f"⚠️ ຮູບໜ້າປົກອັດຕະໂນມັດ: {ex_cover}")
+                    self.log(f"⚠️ ບໍ່ສາມາດສ້າງຮູບໜ້າປົກໄດ້: {ex_cover}")
 
             # 6. Click Next through Steps
             # Step 1 -> Step 2 (Edit)
@@ -229,12 +232,21 @@ class ReelsUploader:
             time.sleep(4)
             self.dismiss_popups()
 
+            # Set Cover Image in Step 2 (Edit) if available
+            cover_set = False
+            if cover_target and os.path.exists(cover_target):
+                cover_set = self.set_reel_cover(cover_target)
+
             # Step 2 -> Step 3 (Publish / Share options)
             self.emit_progress(92, "ກົດຖັດໄປ (ຂັ້ນຕອນທີ 2: ແກ້ໄຂ -> ເຜີຍແຜ່)...")
             self.log("➡️ ກົດຖັດໄປ (ຂັ້ນຕອນທີ 2: ແກ້ໄຂ -> ເຜີຍແຜ່)...")
             self.click_next_button()
             time.sleep(4)
             self.dismiss_popups()
+
+            # Try setting Cover Image in Step 3 (Share) if not set in Step 2
+            if cover_target and os.path.exists(cover_target) and not cover_set:
+                self.set_reel_cover(cover_target)
 
             # Check and enable AI-generated content label in Step 3 if requested
             if self.config.get("mark_as_ai_content", True):
@@ -668,13 +680,13 @@ class ReelsUploader:
             
             # Check for Cover Image tab or button
             cover_triggers = [
-                'text=รูปภาพหน้าปก', 'text=ภาพหน้าปก', 'text=ภาพขนาดย่อ',
-                'text=Cover image', 'text=Cover Image', 'text=Cover',
-                'text=เลือกภาพหน้าปก', 'text=อัปโหลดรูปภาพ', 'text=Upload image'
+                'text=เปลี่ยนภาพหน้าปก', 'text=รูปภาพหน้าปก', 'text=ภาพหน้าปก', 'text=ภาพขนาดย่อ',
+                'text=Change cover', 'text=Cover image', 'text=Cover Image', 'text=Cover',
+                'text=เลือกภาพหน้าปก', 'text=เลือกภาพขนาดย่อ', 'text=อัปโหลดรูปภาพ', 'text=Upload image'
             ]
             for trig in cover_triggers:
                 loc = self.page.locator(trig).first
-                if loc.is_visible(timeout=1500):
+                if loc.is_visible(timeout=1000):
                     try:
                         loc.click()
                         time.sleep(1)
@@ -682,13 +694,17 @@ class ReelsUploader:
                         pass
                     break
 
-            # Look for "อัปโหลดรูปภาพ" / "Upload image" button
+            # Look for "อัปโหลดรูปภาพ" / "Upload image" / "Upload Image" button or file chooser trigger
             upload_btn = self.page.locator('text=อัปโหลดรูปภาพ').or_(
                 self.page.locator('text=Upload image')
             ).or_(
                 self.page.locator('text=Upload Image')
             ).or_(
                 self.page.locator('text=เลือกภาพขนาดย่อ')
+            ).or_(
+                self.page.locator('text=อัปโหลดรูปภาพหน้าปก')
+            ).or_(
+                self.page.locator('text=เปลี่ยนภาพหน้าปก')
             ).first
 
             if upload_btn.is_visible(timeout=2500):

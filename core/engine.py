@@ -188,10 +188,53 @@ class ReelUploadEngine:
     def _get_execution_groups(self) -> List[Dict[str, Any]]:
         return self.config.get("page_groups", [])
 
+    def _do_countdown(self, total_seconds: int, target_time_str: str, next_target_name: str, is_round_cooldown: bool = False, round_num: int = 1):
+        status_key = "waiting_delay" if is_round_cooldown else "waiting_page_delay"
+        for s in range(total_seconds):
+            if not self._is_running:
+                break
+            if self._skip_delay:
+                self._skip_delay = False
+                self.log(f"⚡ ໄດ້ຮັບຄຳສັ່ງ: ຂ້າມເວລາພັກ (Skip Delay) -> ເລີ່ມຕົ້ນດຳເນີນການຕໍ່ທັນທີ!")
+                break
+            while self._is_paused:
+                time.sleep(1)
+                if not self._is_running or self._skip_delay:
+                    break
+
+            rem = total_seconds - s
+            rem_hrs = rem // 3600
+            rem_mins = (rem % 3600) // 60
+            rem_secs = rem % 60
+
+            if is_round_cooldown:
+                if rem_hrs > 0:
+                    cd_str = f"{rem_hrs:02d}:{rem_mins:02d}:{rem_secs:02d}"
+                    p_txt = f"🎉 ຈົບຮອບທີ {round_num}! ພັກຈົບຮອບ (Round Cooldown): {rem_hrs}ຊມ {rem_mins}ນ (ເລີ່ມຮອບ {round_num + 1} ເວລາ {target_time_str})"
+                else:
+                    cd_str = f"{rem_mins:02d}:{rem_secs:02d}"
+                    p_txt = f"🎉 ຈົບຮອບທີ {round_num}! ພັກຈົບຮອບ (Round Cooldown): {rem_mins}ນ {rem_secs}ວ (ເລີ່ມຮອບ {round_num + 1} ເວລາ {target_time_str})"
+            else:
+                cd_str = f"{rem_mins:02d}:{rem_secs:02d}"
+                p_txt = f"⏳ ພັກປ່ຽນ Page (Inter-Page Delay): {rem_mins}ນ {rem_secs}ວ (ເປົ້າໝາຍຖັດໄປ: {next_target_name})"
+
+            WEB_STATE.update(
+                status=status_key,
+                progress_text=p_txt,
+                delay_remaining_seconds=rem,
+                delay_total_seconds=total_seconds,
+                countdown_str=cd_str,
+                next_post_time=target_time_str,
+                next_target=next_target_name
+            )
+            time.sleep(1)
+
+        WEB_STATE.update(status="uploading", delay_remaining_seconds=0, countdown_str="")
+
     def _run_loop(self):
         self._is_running = True
         self._is_paused = False
-        self.log("🎬 ເລີ່ມຕົ້ນລະບົບ Auto-Upload Facebook Reels (Independent Multi-Page Pipeline Engine)...")
+        self.log("🎬 ເລີ່ມຕົ້ນລະບົບ Auto-Upload Facebook Reels (Two-Tier Multi-Page Round Engine)...")
 
         try:
             # Launch browser
@@ -205,14 +248,13 @@ class ReelUploadEngine:
                 self._is_running = False
                 return
 
-            delay_mins = float(self.config.get("delay_between_posts_minutes", 60))
             schedule_interval = float(self.config.get("schedule_interval_hours", 4))
             post_mode = self.config.get("post_mode", "now")
             auto_watch = self.config.get("auto_watch_new_files", True)
 
             current_schedule_time = datetime.now() + timedelta(hours=1)
             total_uploaded_in_session = 0
-            current_pipeline_index = 0
+            round_num = 1
 
             while self._is_running:
                 pipeline_pages = self._get_pipeline_pages()
@@ -221,307 +263,329 @@ class ReelUploadEngine:
                     time.sleep(10)
                     continue
 
-                chosen_video = None
-                chosen_page_cfg = None
+                pacing_mode = self.config.get("pacing_mode", "two_tier")
+                pages_posted_in_round = 0
 
-                # Round-robin: try each page in sequence until finding one with a pending video
-                for offset in range(len(pipeline_pages)):
-                    cand_idx = (current_pipeline_index + offset) % len(pipeline_pages)
-                    p_cfg = pipeline_pages[cand_idx]
+                self.log(f"\n=======================================================")
+                self.log(f"🔄 [ຮອບທີ {round_num}] ເລີ່ມຕົ້ນຮອບອັບໂຫຼດ (ມີທັງໝົດ {len(pipeline_pages)} Page ໃນ Pipeline)")
+                self.log(f"=======================================================")
 
-                    v_path = self.queue_mgr.get_next_video_for_page(p_cfg)
-                    if v_path:
-                        chosen_video = v_path
-                        chosen_page_cfg = p_cfg
-                        current_pipeline_index = (cand_idx + 1) % len(pipeline_pages)
+                for idx, p_cfg in enumerate(pipeline_pages):
+                    if not self._is_running:
                         break
 
-                if not chosen_video or not chosen_page_cfg:
+                    curr_page_name = p_cfg.get("page_name", "")
+                    curr_page_id = str(p_cfg.get("page_id", "")).strip()
+
+                    # Find candidate video for this page
+                    v_path = self.queue_mgr.get_next_video_for_page(p_cfg, log_cb=self.log)
+                    if not v_path:
+                        has_cands = bool(self.queue_mgr.get_candidate_videos_for_page(curr_page_id, p_cfg.get("video_folder")))
+                        if not has_cands:
+                            self.log(f"ℹ️ [ຮອບທີ {round_num}] Page '{curr_page_name}' ບໍ່ມີວິດີໂອໃໝ່ທີ່ລໍຖ້າອັບໂຫຼດ (ຂ້າມໄປ Page ຖັດໄປ)...")
+                        continue
+
+                    chosen_video = v_path
+                    chosen_page_cfg = p_cfg
+
+                    filename = os.path.basename(chosen_video)
+                    content_type = chosen_page_cfg.get("content_type", "china_drama")
+                    pick_mode = chosen_page_cfg.get("pick_mode", "random")
+                    caption_tpl = chosen_page_cfg.get("caption_template") or self.config.get("caption_template")
+                    tags_pool = chosen_page_cfg.get("hashtag_pool") or self.config.get("hashtag_pool")
+                    title_prefix = chosen_page_cfg.get("title_prefix")
+                    if title_prefix is None and content_type == "china_drama":
+                        title_prefix = "[เต็มเรื่อง] "
+                    title_mode = chosen_page_cfg.get("title_mode") or self.config.get("title_mode", "filename_clean")
+                    p_folder = chosen_page_cfg.get("video_folder") or self.config.get("video_folder", "./videos")
+                    p_completed = chosen_page_cfg.get("completed_folder") or self.config.get("completed_folder", "./completed")
+                    p_failed = chosen_page_cfg.get("failed_folder") or self.config.get("failed_folder", "./failed")
+
+                    while self._is_paused:
+                        time.sleep(1)
+                        if not self._is_running:
+                            break
+
+                    total_uploaded_in_session += 1
+
+                    self.log(f"\n=======================================================")
+                    self.log(f"▶️ [ຮອບທີ {round_num} | ຄລິບລວມທີ {total_uploaded_in_session}] Page: '{curr_page_name}' (ID: {curr_page_id})")
+                    self.log(f"📁 Folder: {p_folder} | ຮູບແບບ: {'🎲 ສຸ່ມຄລິບ (Random)' if pick_mode == 'random' else '🔢 ຕາມລຳດັບ (Sequential)'}")
+                    self.log(f"🎬 ໄຟລ໌: {filename}")
+                    self.log(f"=======================================================")
+
+                    # Build caption
+                    cap_data = self.caption_gen.build_caption(
+                        chosen_video,
+                        index=total_uploaded_in_session,
+                        custom_template=caption_tpl,
+                        custom_hashtag_pool=tags_pool,
+                        title_prefix=title_prefix,
+                        content_type=content_type,
+                        title_mode=title_mode
+                    )
+                    title = cap_data["title"]
+                    caption = cap_data["caption"]
+
+                    self.log(f"📌 Title: {title}")
+                    self.log(f"📝 Caption preview:\n{caption[:120]}...")
+
+                    # Update Web State
+                    try:
+                        sz = round(os.path.getsize(chosen_video) / (1024 * 1024), 1) if os.path.exists(chosen_video) else 0
+                        WEB_STATE.update(
+                            status="uploading",
+                            page_name=curr_page_name,
+                            page_id=curr_page_id,
+                            current_video={
+                                "filename": filename,
+                                "title": title,
+                                "size_mb": sz,
+                                "page_name": curr_page_name,
+                                "group_name": f"{curr_page_name} ({pick_mode})"
+                            }
+                        )
+                    except Exception:
+                        pass
+
+                    # Schedule time calculation if needed
+                    sched_dt = None
+                    if post_mode == "schedule":
+                        sched_dt = current_schedule_time
+                        if self.config.get("randomize_schedule", True):
+                            jitter_mins = random.randint(-15, 25)
+                            current_schedule_time += timedelta(hours=schedule_interval, minutes=jitter_mins)
+                        else:
+                            current_schedule_time += timedelta(hours=schedule_interval)
+
+                    # Ensure active browser page before upload
+                    fresh_page = self.browser_mgr.get_active_page()
+                    uploader.page = fresh_page
+
+                    self.log(f"\n🌐 ກຳລັງອັບໂຫຼດໄປຍັງ Page: '{curr_page_name}' (ID: {curr_page_id})...")
+
+                    is_img = QueueManager.is_image_file(chosen_video)
+                    if is_img:
+                        page_success = uploader.upload_photo(
+                            chosen_video,
+                            caption,
+                            schedule_time=sched_dt,
+                            target_page=chosen_page_cfg
+                        )
+                    else:
+                        page_success = uploader.upload_reel(
+                            chosen_video,
+                            caption,
+                            schedule_time=sched_dt,
+                            target_page=chosen_page_cfg,
+                            title=title
+                        )
+
+                    uploaded_successfully = False
+                    if page_success:
+                        self.log(f"✅ ອັບໂຫຼດໄປຍັງ Page '{curr_page_name}' ສຳເລັດຮຽບຮ້ອຍ!")
+                        self.queue_mgr.record_page_success(chosen_video, chosen_page_cfg, meta={
+                            "title": title, "caption": caption, "content_type": content_type
+                        })
+                        self.queue_mgr.mark_completed(
+                            chosen_video,
+                            meta={
+                                "title": title,
+                                "caption": caption,
+                                "page_name": curr_page_name,
+                                "page_id": curr_page_id,
+                                "mode": post_mode,
+                                "scheduled_time": sched_dt.isoformat() if sched_dt else None,
+                                "target_pages": [{"page_name": curr_page_name, "page_id": curr_page_id, "success": True}]
+                            },
+                            custom_dest_folder=p_completed
+                        )
+                        self.queue_mgr.release_video_lock(chosen_video)
+                        self.notifier.notify_upload_success(title, curr_page_name)
+                        uploaded_successfully = True
+
+                    else:
+                        self.log(f"⚠️ ການອັບໂຫຼດໄປຍັງ Page '{curr_page_name}' ບໍ່ສຳເລັດ, ກຳລັງ Retry ອີກ 1 ຄັ້ງ...")
+                        retry_delay = round(random.uniform(2, 4), 1)
+                        retry_secs = int(retry_delay * 60)
+                        self.log(f"⏳ ພັກ {retry_delay} ນາທີ ກ່ອນ Retry...")
+                        target_retry_dt = get_lao_now() + timedelta(seconds=retry_secs)
+                        target_retry_str = target_retry_dt.strftime("%H:%M:%S")
+
+                        for _s in range(retry_secs):
+                            if not self._is_running:
+                                break
+                            if self._skip_delay:
+                                self._skip_delay = False
+                                self.log("⚡ ຂ້າມເວລາພັກ Retry! ກຳລັງລອງອັບໂຫຼດໃໝ່ທັນທີ...")
+                                break
+                            while self._is_paused:
+                                time.sleep(1)
+                                if not self._is_running or self._skip_delay:
+                                    break
+
+                            rem_r = retry_secs - _s
+                            rem_r_m = rem_r // 60
+                            rem_r_s = rem_r % 60
+                            cd_r_str = f"{rem_r_m:02d}:{rem_r_s:02d}"
+
+                            WEB_STATE.update(
+                                status="waiting_retry_delay",
+                                progress_text=f"ພັກກ່ອນ Retry: {cd_r_str} (ຮອດ {target_retry_str})",
+                                delay_remaining_seconds=rem_r,
+                                delay_total_seconds=retry_secs,
+                                countdown_str=cd_r_str,
+                                next_post_time=target_retry_str,
+                                next_target=curr_page_name
+                            )
+                            time.sleep(1)
+                        WEB_STATE.update(status="uploading", delay_remaining_seconds=0, countdown_str="")
+
+                        if self._is_running:
+                            self.log(f"🔄 [Retry] ກຳລັງອັບໂຫຼດໄປຍັງ '{curr_page_name}' ອີກຄັ້ງ...")
+                            fresh_page = self.browser_mgr.get_active_page()
+                            uploader.page = fresh_page
+                            if is_img:
+                                retry_ok = uploader.upload_photo(chosen_video, caption, schedule_time=sched_dt, target_page=chosen_page_cfg)
+                            else:
+                                retry_ok = uploader.upload_reel(chosen_video, caption, schedule_time=sched_dt, target_page=chosen_page_cfg, title=title)
+
+                            if retry_ok:
+                                self.log(f"✅ [Retry] ອັບໂຫຼດໄປຍັງ '{curr_page_name}' ສຳເລັດແລ້ວ!")
+                                self.queue_mgr.record_page_success(chosen_video, chosen_page_cfg, meta={
+                                    "title": title, "caption": caption, "content_type": content_type
+                                })
+                                self.queue_mgr.mark_completed(
+                                    chosen_video,
+                                    meta={
+                                        "title": title, "caption": caption,
+                                        "page_name": curr_page_name, "page_id": curr_page_id,
+                                        "mode": post_mode,
+                                        "target_pages": [{"page_name": curr_page_name, "page_id": curr_page_id, "success": True, "is_retry": True}]
+                                    },
+                                    custom_dest_folder=p_completed
+                                )
+                                self.queue_mgr.release_video_lock(chosen_video)
+                                self.notifier.notify_upload_success(title, curr_page_name)
+                                uploaded_successfully = True
+                            else:
+                                self.log(f"❌ [Retry] ອັບໂຫຼດໄປຍັງ '{curr_page_name}' ລົ້ມເຫຼວອີກ.")
+                                self.queue_mgr.mark_failed(
+                                    chosen_video,
+                                    f"Upload failed after retry on page: {curr_page_name} (ID: {curr_page_id})",
+                                    custom_failed_folder=p_failed
+                                )
+                                self.queue_mgr.release_video_lock(chosen_video)
+                                self.notifier.notify_upload_failed(title, curr_page_name, "Upload failed after retry")
+
+                    pages_posted_in_round += 1
+
+                    # Follower CTA Photo Post trigger (if enabled and not posted today)
+                    cta_enabled = self.config.get("cta_post_enabled", False) and chosen_page_cfg.get("cta_post_enabled", False)
+                    if cta_enabled and not self.queue_mgr.has_posted_cta_today(curr_page_id):
+                        self.log(f"\n📢 [Creator Goal] ກຳລັງໂພສຮູບພາບ AI ເຊີນຊວນຕິດຕາມ ສຳລັບ Page '{curr_page_name}'...")
+                        try:
+                            self.post_follower_cta(
+                                page=page,
+                                target_pages=[chosen_page_cfg],
+                                group_content_type=content_type
+                            )
+                        except Exception as e:
+                            self.log(f"Warning posting CTA photo: {e}")
+
+                    # Update stats
+                    self.update_status(self.queue_mgr.get_stats())
+
+                    # Check delay before next page in this round
+                    if self._is_running:
+                        if pacing_mode == "legacy":
+                            if self.config.get("randomize_delay", True):
+                                min_d = float(self.config.get("delay_min_minutes", 60))
+                                max_d = float(self.config.get("delay_max_minutes", 120))
+                                if min_d > max_d:
+                                    min_d, max_d = max_d, min_d
+                                delay_mins = round(random.uniform(min_d, max_d), 1)
+                            else:
+                                delay_mins = float(self.config.get("delay_between_posts_minutes", 60))
+                            total_secs = int(delay_mins * 60)
+                            target_dt = get_lao_now() + timedelta(seconds=total_secs)
+                            target_str = target_dt.strftime("%H:%M:%S")
+                            self.log(f"⏳ [Legacy Delay] ພັກລໍຖ້າ {delay_mins} ນາທີ...")
+                            self._do_countdown(total_secs, target_str, "Page ຖັດໄປ", is_round_cooldown=False, round_num=round_num)
+                        else:
+                            # Approach 1: Check if any remaining page in pipeline has candidate videos
+                            has_more_in_round = False
+                            next_target_name = ""
+                            for next_idx in range(idx + 1, len(pipeline_pages)):
+                                next_p = pipeline_pages[next_idx]
+                                next_pid = str(next_p.get("page_id", "")).strip()
+                                next_folder = next_p.get("video_folder") or self.config.get("video_folder")
+                                cands = self.queue_mgr.get_candidate_videos_for_page(next_pid, next_folder)
+                                if cands:
+                                    has_more_in_round = True
+                                    next_target_name = next_p.get("page_name", "")
+                                    break
+
+                            if has_more_in_round:
+                                min_m = float(self.config.get("inter_page_delay_min_minutes", 3))
+                                max_m = float(self.config.get("inter_page_delay_max_minutes", 5))
+                                if min_m > max_m:
+                                    min_m, max_m = max_m, min_m
+                                delay_mins = round(random.uniform(min_m, max_m), 1)
+                                total_secs = int(delay_mins * 60)
+                                target_dt = get_lao_now() + timedelta(seconds=total_secs)
+                                target_str = target_dt.strftime("%H:%M:%S")
+
+                                self.log(f"⏳ [Inter-Page Delay] ພັກປ່ຽນ Page {delay_mins} ນາທີ (ສຸ່ມ {min_m}-{max_m} ນາທີ) ກ່ອນເລີ່ມ Page ຖັດໄປ '{next_target_name}' (ເປົ້າໝາຍ {target_str})...")
+                                self._do_countdown(total_secs, target_str, next_target_name, is_round_cooldown=False, round_num=round_num)
+                            else:
+                                self.log(f"🏁 [ຮອບທີ {round_num}] Page ນີ້ເປັນ Page ສຸດທ້າຍໃນຮອບນີ້ທີ່ມີວິດີໂອ -> ກຽມພັກຈົບຮອບ (Round Cooldown)...")
+
+                # End of Round processing
+                if not self._is_running:
+                    break
+
+                if pages_posted_in_round > 0:
+                    if pacing_mode != "legacy":
+                        # Tier 2: Round Cooldown
+                        min_h = float(self.config.get("round_cooldown_min_hours", 2.0))
+                        max_h = float(self.config.get("round_cooldown_max_hours", 2.5))
+                        if min_h > max_h:
+                            min_h, max_h = max_h, min_h
+                        cooldown_hours = round(random.uniform(min_h, max_h), 2)
+                        cooldown_secs = int(cooldown_hours * 3600)
+                        target_dt = get_lao_now() + timedelta(seconds=cooldown_secs)
+                        target_str = target_dt.strftime("%H:%M:%S")
+
+                        first_p_name = pipeline_pages[0].get("page_name", "")
+
+                        self.log(f"\n=======================================================")
+                        self.log(f"🎉 [Round Cooldown] ຈົບຮອບທີ {round_num} ສຳເລັດຮຽບຮ້ອຍ! (ອັບໂຫຼດໄປທັງໝົດ {pages_posted_in_round} Page)")
+                        self.log(f"⏳ ພັກຈົບຮອບ {cooldown_hours} ຊົ່ວໂມງ ({int(cooldown_hours * 60)} ນາທີ, ສຸ່ມລະຫວ່າງ {min_h}-{max_h} ຊມ)...")
+                        self.log(f"🕒 ຮອບທີ {round_num + 1} ຈະເລີ່ມຕົ້ນເວລາ: {target_str} (ເລີ່ມຕົ້ນທີ່ Page: '{first_p_name}')")
+                        self.log(f"=======================================================\n")
+
+                        self._do_countdown(cooldown_secs, target_str, f"ຮອບທີ {round_num + 1} ({first_p_name})", is_round_cooldown=True, round_num=round_num)
+                    round_num += 1
+
+                else:
                     if not auto_watch:
                         self.log("🏁 ວິດີໂອທັງໝົດໃນທຸກ Page ອັບໂຫຼດຄົບແລ້ວ!")
                         break
 
-                    self.log("⏳ ບໍ່ມີວິດີໂອໃໝ່ທີ່ລໍຖ້າອັບໂຫຼດໃນທຸກ Page! ກຳລັງລໍຖ້າໄຟລ໌ໃໝ່ (Continuous Watch)...")
-                    for _ in range(15):
-                        if not self._is_running:
+                    self.log(f"⏳ [Continuous Watch] ບໍ່ມີວິດີໂອໃໝ່ທີ່ລໍຖ້າອັບໂຫຼດໃນທຸກ Page! ກຳລັງລໍຖ້າໄຟລ໌ໃໝ່ (ກວດສອບທຸກ 30 ວິນາທີ)...")
+                    WEB_STATE.update(status="idle", progress_text="ລໍຖ້າໄຟລ໌ວິດີໂອໃໝ່ (Continuous Watch)...", delay_remaining_seconds=0, countdown_str="")
+                    for _ in range(30):
+                        if not self._is_running or self._skip_delay:
+                            if self._skip_delay:
+                                self._skip_delay = False
                             break
                         while self._is_paused:
                             time.sleep(1)
                             if not self._is_running:
                                 break
                         time.sleep(1)
-                    continue
 
-                filename = os.path.basename(chosen_video)
-                curr_page_name = chosen_page_cfg.get("page_name", "")
-                curr_page_id = str(chosen_page_cfg.get("page_id", "")).strip()
-                content_type = chosen_page_cfg.get("content_type", "china_drama")
-                pick_mode = chosen_page_cfg.get("pick_mode", "random")
-                caption_tpl = chosen_page_cfg.get("caption_template") or self.config.get("caption_template")
-                tags_pool = chosen_page_cfg.get("hashtag_pool") or self.config.get("hashtag_pool")
-                title_prefix = chosen_page_cfg.get("title_prefix")
-                if title_prefix is None and content_type == "china_drama":
-                    title_prefix = "[เต็มเรื่อง] "
-                title_mode = chosen_page_cfg.get("title_mode") or self.config.get("title_mode", "filename_clean")
-                p_folder = chosen_page_cfg.get("video_folder") or self.config.get("video_folder", "./videos")
-                p_completed = chosen_page_cfg.get("completed_folder") or self.config.get("completed_folder", "./completed")
-                p_failed = chosen_page_cfg.get("failed_folder") or self.config.get("failed_folder", "./failed")
-
-                while self._is_paused:
-                    time.sleep(1)
-                    if not self._is_running:
-                        break
-
-                total_uploaded_in_session += 1
-
-                self.log(f"\n=======================================================")
-                self.log(f"▶️ [ຄລິບທີ {total_uploaded_in_session}] Page: '{curr_page_name}' (ID: {curr_page_id})")
-                self.log(f"📁 Folder: {p_folder} | ຮູບແບບ: {'🎲 สุ่มคลิป (Random)' if pick_mode == 'random' else '🔢 ตามลำดับ (Sequential)'}")
-                self.log(f"🎬 ໄຟລ໌: {filename}")
-                self.log(f"=======================================================")
-
-                # Build caption
-                cap_data = self.caption_gen.build_caption(
-                    chosen_video,
-                    index=total_uploaded_in_session,
-                    custom_template=caption_tpl,
-                    custom_hashtag_pool=tags_pool,
-                    title_prefix=title_prefix,
-                    content_type=content_type,
-                    title_mode=title_mode
-                )
-                title = cap_data["title"]
-                caption = cap_data["caption"]
-
-                self.log(f"📌 Title: {title}")
-                self.log(f"📝 Caption preview:\n{caption[:120]}...")
-
-                # Update Web State
-                try:
-                    sz = round(os.path.getsize(chosen_video) / (1024 * 1024), 1) if os.path.exists(chosen_video) else 0
-                    WEB_STATE.update(
-                        status="uploading",
-                        page_name=curr_page_name,
-                        page_id=curr_page_id,
-                        current_video={
-                            "filename": filename,
-                            "title": title,
-                            "size_mb": sz,
-                            "page_name": curr_page_name,
-                            "group_name": f"{curr_page_name} ({pick_mode})"
-                        }
-                    )
-                except Exception:
-                    pass
-
-                # Schedule time calculation if needed
-                sched_dt = None
-                if post_mode == "schedule":
-                    sched_dt = current_schedule_time
-                    if self.config.get("randomize_schedule", True):
-                        jitter_mins = random.randint(-15, 25)
-                        current_schedule_time += timedelta(hours=schedule_interval, minutes=jitter_mins)
-                    else:
-                        current_schedule_time += timedelta(hours=schedule_interval)
-
-                # Ensure active browser page before upload
-                fresh_page = self.browser_mgr.get_active_page()
-                uploader.page = fresh_page
-
-                self.log(f"\n🌐 ກຳລັງອັບໂຫຼດໄປຍັງ Page: '{curr_page_name}' (ID: {curr_page_id})...")
-
-                is_img = QueueManager.is_image_file(chosen_video)
-                if is_img:
-                    page_success = uploader.upload_photo(
-                        chosen_video,
-                        caption,
-                        schedule_time=sched_dt,
-                        target_page=chosen_page_cfg
-                    )
-                else:
-                    page_success = uploader.upload_reel(
-                        chosen_video,
-                        caption,
-                        schedule_time=sched_dt,
-                        target_page=chosen_page_cfg,
-                        title=title
-                    )
-
-                if page_success:
-                    self.log(f"✅ ອັບໂຫຼດໄປຍັງ Page '{curr_page_name}' ສຳເລັດຮຽບຮ້ອຍ!")
-                    self.queue_mgr.record_page_success(chosen_video, chosen_page_cfg, meta={
-                        "title": title, "caption": caption, "content_type": content_type
-                    })
-                    self.queue_mgr.mark_completed(
-                        chosen_video,
-                        meta={
-                            "title": title,
-                            "caption": caption,
-                            "page_name": curr_page_name,
-                            "page_id": curr_page_id,
-                            "mode": post_mode,
-                            "scheduled_time": sched_dt.isoformat() if sched_dt else None,
-                            "target_pages": [{"page_name": curr_page_name, "page_id": curr_page_id, "success": True}]
-                        },
-                        custom_dest_folder=p_completed
-                    )
-                    self.queue_mgr.release_video_lock(chosen_video)
-                    self.notifier.notify_upload_success(title, curr_page_name)
-
-                else:
-                    self.log(f"⚠️ ການອັບໂຫຼດໄປຍັງ Page '{curr_page_name}' ບໍ່ສຳເລັດ, ກຳລັງ Retry ອີກ 1 ຄັ້ງ...")
-                    retry_delay = round(random.uniform(2, 4), 1)
-                    retry_secs = int(retry_delay * 60)
-                    self.log(f"⏳ ພັກ {retry_delay} ນາທີ ກ່ອນ Retry...")
-                    target_retry_dt = get_lao_now() + timedelta(seconds=retry_secs)
-                    target_retry_str = target_retry_dt.strftime("%H:%M:%S")
-
-                    for _s in range(retry_secs):
-                        if not self._is_running:
-                            break
-                        if self._skip_delay:
-                            self._skip_delay = False
-                            self.log("⚡ ຂ້າມເວລາພັກ Retry! ກຳລັງລອງອັບໂຫຼດໃໝ່ທັນທີ...")
-                            break
-                        while self._is_paused:
-                            time.sleep(1)
-                            if not self._is_running or self._skip_delay:
-                                break
-
-                        rem_r = retry_secs - _s
-                        rem_r_m = rem_r // 60
-                        rem_r_s = rem_r % 60
-                        cd_r_str = f"{rem_r_m:02d}:{rem_r_s:02d}"
-
-                        WEB_STATE.update(
-                            status="waiting_retry_delay",
-                            progress_text=f"ພັກກ່ອນ Retry: {cd_r_str} (ຮອດ {target_retry_str})",
-                            delay_remaining_seconds=rem_r,
-                            delay_total_seconds=retry_secs,
-                            countdown_str=cd_r_str,
-                            next_post_time=target_retry_str,
-                            next_target=curr_page_name
-                        )
-                        time.sleep(1)
-                    WEB_STATE.update(status="uploading", delay_remaining_seconds=0, countdown_str="")
-
-                    if self._is_running:
-                        self.log(f"🔄 [Retry] ກຳລັງອັບໂຫຼດໄປຍັງ '{curr_page_name}' ອີກຄັ້ງ...")
-                        fresh_page = self.browser_mgr.get_active_page()
-                        uploader.page = fresh_page
-                        if is_img:
-                            retry_ok = uploader.upload_photo(chosen_video, caption, schedule_time=sched_dt, target_page=chosen_page_cfg)
-                        else:
-                            retry_ok = uploader.upload_reel(chosen_video, caption, schedule_time=sched_dt, target_page=chosen_page_cfg, title=title)
-
-                        if retry_ok:
-                            self.log(f"✅ [Retry] ອັບໂຫຼດໄປຍັງ '{curr_page_name}' ສຳເລັດແລ້ວ!")
-                            self.queue_mgr.record_page_success(chosen_video, chosen_page_cfg, meta={
-                                "title": title, "caption": caption, "content_type": content_type
-                            })
-                            self.queue_mgr.mark_completed(
-                                chosen_video,
-                                meta={
-                                    "title": title, "caption": caption,
-                                    "page_name": curr_page_name, "page_id": curr_page_id,
-                                    "mode": post_mode,
-                                    "target_pages": [{"page_name": curr_page_name, "page_id": curr_page_id, "success": True, "is_retry": True}]
-                                },
-                                custom_dest_folder=p_completed
-                            )
-                            self.queue_mgr.release_video_lock(chosen_video)
-                            self.notifier.notify_upload_success(title, curr_page_name)
-                        else:
-                            self.log(f"❌ [Retry] ອັບໂຫຼດໄປຍັງ '{curr_page_name}' ລົ້ມເຫຼວອີກ.")
-                            self.queue_mgr.mark_failed(
-                                chosen_video,
-                                f"Upload failed after retry on page: {curr_page_name} (ID: {curr_page_id})",
-                                custom_failed_folder=p_failed
-                            )
-                            self.queue_mgr.release_video_lock(chosen_video)
-                            self.notifier.notify_upload_failed(title, curr_page_name, "Upload failed after retry")
-
-                # Follower CTA Photo Post trigger (if enabled and not posted today)
-                cta_enabled = self.config.get("cta_post_enabled", False) and chosen_page_cfg.get("cta_post_enabled", False)
-                if cta_enabled and not self.queue_mgr.has_posted_cta_today(curr_page_id):
-                    self.log(f"\n📢 [Creator Goal] ກຳລັງໂພສຮູບພາບ AI ເຊີນຊວນຕິດຕາມ ສຳລັບ Page '{curr_page_name}'...")
-                    try:
-                        self.post_follower_cta(
-                            page=page,
-                            target_pages=[chosen_page_cfg],
-                            group_content_type=content_type
-                        )
-                    except Exception as e:
-                        self.log(f"Warning posting CTA photo: {e}")
-
-                # Update stats
-                self.update_status(self.queue_mgr.get_stats())
-
-                # Delay before next post (with random jitter)
-                if self._is_running:
-                    # RAM Optimization: Close Edge browser during long delay (60-120 min) to free ~1.2 GB RAM
-                    try:
-                        self.browser_mgr.close()
-                        self.log("💤 [RAM Saver] ປິດ Browser ຊົ່ວຄາວໃນຊ່ວງພັກລໍຖ້າ (ຄືນ RAM 1.2 GB ໃຫ້ເຄື່ອງ)...")
-                    except Exception:
-                        pass
-                    WEB_STATE.update(status="waiting_delay")
-                    if self.config.get("randomize_delay", True):
-                        min_d = float(self.config.get("delay_min_minutes", 60))
-                        max_d = float(self.config.get("delay_max_minutes", 120))
-                        if min_d > max_d:
-                            min_d, max_d = max_d, min_d
-                        delay_mins = round(random.uniform(min_d, max_d), 1)
-                        self.log(f"⏳ ສຸ່ມເວລາພັກລໍຖ້າ (Random Delay): {delay_mins} ນາທີ ({round(delay_mins/60, 1)} ຊົ່ວໂມງ) ກ່ອນເລີ່ມ Page ຖັດໄປ (ສຸ່ມລະຫວ່າງ {int(min_d)}-{int(max_d)} ນາທີ ເພື່ອຄວາມເປັນທຳມະຊາດ)...")
-                    else:
-                        delay_mins = float(self.config.get("delay_between_posts_minutes", 60))
-                        self.log(f"⏳ ພັກລໍຖ້າ (Delay) {delay_mins} ນາທີ ({round(delay_mins/60, 1)} ຊົ່ວໂມງ) ເພື່ອປ້ອງກັນ Facebook Spam...")
-
-                    total_seconds = int(delay_mins * 60)
-                    target_dt = get_lao_now() + timedelta(seconds=total_seconds)
-                    target_time_str = target_dt.strftime("%H:%M:%S")
-
-                    # Preview next page
-                    next_page_idx = current_pipeline_index % len(pipeline_pages)
-                    next_p_cfg = pipeline_pages[next_page_idx]
-                    next_p_name = next_p_cfg.get("page_name", "Page ຖັດໄປ")
-
-                    for s in range(total_seconds):
-                        if not self._is_running:
-                            break
-                        if self._skip_delay:
-                            self._skip_delay = False
-                            self.log(f"⚡ ໄດ້ຮັບຄຳສັ່ງ: ຂ້າມເວລາພັກລໍຖ້າ (Skip Delay) -> ເລີ່ມຕົ້ນອັບໂຫຼດໄປຍັງ '{next_p_name}' ທັນທີ!")
-                            break
-                        while self._is_paused:
-                            time.sleep(1)
-                            if not self._is_running or self._skip_delay:
-                                break
-
-                        rem = total_seconds - s
-                        rem_hrs = rem // 3600
-                        rem_mins = (rem % 3600) // 60
-                        rem_secs = rem % 60
-
-                        if rem_hrs > 0:
-                            countdown_str = f"{rem_hrs:02d}:{rem_mins:02d}:{rem_secs:02d}"
-                            progress_text = f"ພັກລໍຖ້າໂພສຖັດໄປ: {rem_hrs}ຊມ {rem_mins}ນ {rem_secs}ວ (ເປົ້າໝາຍ: {next_p_name})"
-                        else:
-                            countdown_str = f"{rem_mins:02d}:{rem_secs:02d}"
-                            progress_text = f"ພັກລໍຖ້າໂພສຖັດໄປ: {rem_mins}ນ {rem_secs}ວ (ເປົ້າໝາຍ: {next_p_name})"
-
-                        WEB_STATE.update(
-                            status="waiting_delay",
-                            progress_text=progress_text,
-                            delay_remaining_seconds=rem,
-                            delay_total_seconds=total_seconds,
-                            countdown_str=countdown_str,
-                            next_post_time=target_time_str,
-                            next_target=next_p_name
-                        )
-
-                        time.sleep(1)
-                    WEB_STATE.update(status="uploading", delay_remaining_seconds=0, countdown_str="")
             self.log("🏁 ສິ້ນສຸດການເຮັດວຽກຂອງລະບົບອັບໂຫຼດ.")
             WEB_STATE.update(status="finished", progress_pct=100, progress_text="ອັບໂຫຼດຄົບຮຽບຮ້ອຍ (Done)")
 

@@ -251,9 +251,14 @@ class MonitorState:
                         page_groups = cfg.get("page_groups", [])
                         pages_pipeline = cfg.get("pages_pipeline", [])
                         config_summary = {
-                            "delay_min_minutes": cfg.get("delay_min_minutes", 180),
-                            "delay_max_minutes": cfg.get("delay_max_minutes", 240),
-                            "delay_between_posts_minutes": cfg.get("delay_between_posts_minutes", 210),
+                            "pacing_mode": cfg.get("pacing_mode", "two_tier"),
+                            "inter_page_delay_min_minutes": cfg.get("inter_page_delay_min_minutes", 3),
+                            "inter_page_delay_max_minutes": cfg.get("inter_page_delay_max_minutes", 5),
+                            "round_cooldown_min_hours": cfg.get("round_cooldown_min_hours", 2.0),
+                            "round_cooldown_max_hours": cfg.get("round_cooldown_max_hours", 2.5),
+                            "delay_min_minutes": cfg.get("delay_min_minutes", 60),
+                            "delay_max_minutes": cfg.get("delay_max_minutes", 120),
+                            "delay_between_posts_minutes": cfg.get("delay_between_posts_minutes", 90),
                             "randomize_delay": cfg.get("randomize_delay", True),
                             "title_prefix": cfg.get("title_prefix", "[เต็มเรื่อง] "),
                             "caption_template": cfg.get("caption_template", ""),
@@ -1053,31 +1058,70 @@ MOBILE_UI_HTML = """<!DOCTYPE html>
 
         <!-- 1. Delay & Timing -->
         <div class="settings-section">
-          <div class="section-title">⏱️ 1. ເວລາພັກ & ໄລຍະຫ່າງ (Cooldown & Timing)</div>
+          <div class="section-title">⏱️ 1. ເວລາພັກ & ຮອບການອັບໂຫຼດ (Two-Tier Scheduling Engine)</div>
           
-          <div class="form-group-switch">
-            <div>
-              <div class="switch-lbl">ສຸ່ມເວລາພັກ (Randomize Delay)</div>
-              <div class="switch-sub">ສຸ່ມລະຫວ່າງ Min - Max ເພື່ອປ້ອງກັນ Facebook Spam</div>
-            </div>
-            <input type="checkbox" id="cfgRandomDelay" class="toggle-switch">
-          </div>
-
-          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px;">
-            <div class="form-group">
-              <label class="form-lbl">Delay ຕໍ່າສຸດ (ນາທີ)</label>
-              <input type="number" class="input-field" id="cfgMinDelay" value="60">
-            </div>
-            <div class="form-group">
-              <label class="form-lbl">Delay ສູງສຸດ (ນາທີ)</label>
-              <input type="number" class="input-field" id="cfgMaxDelay" value="120">
-            </div>
-          </div>
-
           <div class="form-group">
-            <label class="form-lbl">Delay ຄົງທີ່ (Fixed Delay - ນາທີ ຖ້າບໍ່ສຸ່ມ)</label>
-            <input type="number" class="input-field" id="cfgFixedDelay" value="60">
+            <label class="form-lbl">ຮູບແບບການພັກ (Pacing Mode)</label>
+            <select class="input-field" id="cfgPacingMode" style="font-size: 13px;">
+              <option value="two_tier">✨ ແບບທີ 1: Two-Tier (ພັກປ່ຽນ Page ສັ້ນ 3-5 ນາທີ + ພັກຈົບຮອບ 2-2.5 ຊມ - ແນະນຳ)</option>
+              <option value="legacy">🔄 ແບບເກົ່າ: Legacy (ພັກເທົ່າກັນທຸກຄລິບ 60-120 ນາທີ)</option>
+            </select>
           </div>
+
+          <div style="background: rgba(56, 189, 248, 0.08); border: 1px solid rgba(56, 189, 248, 0.2); border-radius: 8px; padding: 10px; margin-bottom: 12px;">
+            <div style="font-size: 12px; font-weight: 600; color: #38bdf8; margin-bottom: 6px;">⚡ Tier 1: ພັກປ່ຽນ Page ໃນຮອບດຽວກັນ (Inter-Page Delay)</div>
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px;">
+              <div class="form-group" style="margin-bottom: 0;">
+                <label class="form-lbl">ຕ່ຳສຸດ (ນາທີ)</label>
+                <input type="number" step="0.5" class="input-field" id="cfgInterPageMin" value="3">
+              </div>
+              <div class="form-group" style="margin-bottom: 0;">
+                <label class="form-lbl">ສູງສຸດ (ນາທີ)</label>
+                <input type="number" step="0.5" class="input-field" id="cfgInterPageMax" value="5">
+              </div>
+            </div>
+          </div>
+
+          <div style="background: rgba(168, 85, 247, 0.08); border: 1px solid rgba(168, 85, 247, 0.2); border-radius: 8px; padding: 10px; margin-bottom: 12px;">
+            <div style="font-size: 12px; font-weight: 600; color: #c084fc; margin-bottom: 6px;">🎉 Tier 2: ພັກຄົບຮອບທຸກ Page (Round Cooldown)</div>
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px;">
+              <div class="form-group" style="margin-bottom: 0;">
+                <label class="form-lbl">ຕ່ຳສຸດ (ຊົ່ວໂມງ)</label>
+                <input type="number" step="0.1" class="input-field" id="cfgRoundCooldownMin" value="2.0">
+              </div>
+              <div class="form-group" style="margin-bottom: 0;">
+                <label class="form-lbl">ສູງສຸດ (ຊົ່ວໂມງ)</label>
+                <input type="number" step="0.1" class="input-field" id="cfgRoundCooldownMax" value="2.5">
+              </div>
+            </div>
+          </div>
+
+          <details style="font-size: 11px; color: var(--text-muted); cursor: pointer;">
+            <summary style="margin-bottom: 6px;">⚙️ ການຕັ້ງຄ່າ Delay ສຳຮອງ (Legacy Fallback)</summary>
+            <div class="form-group-switch" style="margin-top: 6px;">
+              <div>
+                <div class="switch-lbl">ສຸ່ມເວລາພັກ (Randomize Delay)</div>
+                <div class="switch-sub">ສຸ່ມລະຫວ່າງ Min - Max ເພື່ອປ້ອງກັນ Facebook Spam</div>
+              </div>
+              <input type="checkbox" id="cfgRandomDelay" class="toggle-switch">
+            </div>
+
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px;">
+              <div class="form-group">
+                <label class="form-lbl">Delay ຕໍ່າສຸດ (ນາທີ)</label>
+                <input type="number" class="input-field" id="cfgMinDelay" value="60">
+              </div>
+              <div class="form-group">
+                <label class="form-lbl">Delay ສູງສຸດ (ນາທີ)</label>
+                <input type="number" class="input-field" id="cfgMaxDelay" value="120">
+              </div>
+            </div>
+
+            <div class="form-group">
+              <label class="form-lbl">Delay ຄົງທີ່ (Fixed Delay - ນາທີ ຖ້າບໍ່ສຸ່ມ)</label>
+              <input type="number" class="input-field" id="cfgFixedDelay" value="60">
+            </div>
+          </details>
         </div>
 
         <!-- 2. Content & Caption -->
@@ -1259,9 +1303,76 @@ MOBILE_UI_HTML = """<!DOCTYPE html>
         <label class="form-lbl">Facebook Page ID (ຕົວເລກ 10-20 ຫຼັກ):</label>
         <input type="text" inputmode="numeric" class="input-field" id="addPageIdInput" placeholder="ຕົວຢ່າງ: 104640754387216">
       </div>
+      <div class="form-group">
+        <label class="form-lbl">ໂຟນເດີວິດີໂອ (Video Folder):</label>
+        <div style="display: flex; gap: 6px;">
+          <input type="text" class="input-field" id="addPageFolderInput" value="/home/moes/storage/Reels/Movies FB" placeholder="/home/moes/storage/Reels/..." style="flex: 1; font-family: monospace; font-size: 11px;">
+          <button type="button" class="btn-sm btn-secondary" onclick="openPipelineFolderPicker('new_page')" style="white-space: nowrap; padding: 0 10px;">📁 Browse...</button>
+        </div>
+      </div>
+      <div class="form-group">
+        <label class="form-lbl">ຮູບແບບເລືອກຄລິບ (Pick Mode):</label>
+        <select class="input-field" id="addPagePickMode">
+          <option value="random">🎲 ສຸ່ມຄລິບ (Random)</option>
+          <option value="sequential">🔢 ຕາມລຳດັບ (Sequential EP1, EP2...)</option>
+        </select>
+      </div>
       <div style="display: flex; gap: 8px; justify-content: flex-end; margin-top: 14px;">
         <button class="btn btn-secondary" style="padding: 8px 14px;" onclick="closeAddPageModal()">ຍົກເລີກ</button>
         <button class="btn btn-start" style="padding: 8px 16px;" onclick="submitAddPage()">➕ ເພີ່ມ Page</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal Folder Browser / Directory Picker -->
+  <div class="modal-overlay" id="folderPickerModal" style="display:none; z-index: 9999;">
+    <div class="modal-box" style="max-width: 520px; width: 95%; max-height: 85vh; display: flex; flex-direction: column;">
+      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+        <div style="font-size: 14px; font-weight: 800; color: #fff; display: flex; align-items: center; gap: 6px;">
+          <span>📁</span>
+          <span id="folderPickerTitle">ເລືອກໂຟນເດີວິດີໂອ (Select Video Folder)</span>
+        </div>
+        <button type="button" class="btn-sm btn-secondary" onclick="closeFolderPickerModal()" style="padding: 2px 8px;">✕</button>
+      </div>
+      <div style="font-size: 11px; color: var(--text-muted); margin-bottom: 10px;">
+        ເລືອກໂຟນເດີໃນ Central Storage ສຳລັບ Page ນີ້:
+      </div>
+
+      <!-- Quick presets -->
+      <div style="margin-bottom: 8px; background: rgba(0,0,0,0.25); padding: 8px; border-radius: 8px; border: 1px solid rgba(255,255,255,0.06);">
+        <div style="font-size: 10px; font-weight: 700; color: #94a3b8; margin-bottom: 5px;">⚡ ໂຟນເດີລັດ (Quick Presets):</div>
+        <div id="pickerPresetsList" style="display: flex; gap: 6px; flex-wrap: wrap;"></div>
+      </div>
+
+      <!-- Nav Bar -->
+      <div style="display: flex; gap: 6px; align-items: center; margin-bottom: 8px;">
+        <button type="button" class="btn-sm btn-secondary" id="pickerUpBtn" onclick="navigatePickerUp()" title="ຂຶ້ນເທິງ 1 ຂັ້ນ">⬆️ ຂຶ້ນ</button>
+        <input type="text" class="input-field" id="pickerCurrentPath" style="margin-bottom:0; font-family: monospace; font-size: 11px; flex: 1;" placeholder="/home/moes/storage/Reels">
+        <button type="button" class="btn-sm btn-secondary" onclick="loadPickerDirectory(document.getElementById('pickerCurrentPath').value)" title="ຣີເຟຣຊ">🔄</button>
+        <button type="button" class="btn-sm" style="background: rgba(99, 102, 241, 0.2); color: #818cf8; border: 1px solid rgba(99, 102, 241, 0.4);" onclick="togglePickerNewFolder()" title="ສ້າງໂຟນເດີໃໝ່">➕ ໃໝ່</button>
+      </div>
+
+      <!-- New Folder Inline Prompt -->
+      <div id="pickerNewFolderRow" style="display: none; gap: 6px; align-items: center; margin-bottom: 8px; background: rgba(99, 102, 241, 0.1); padding: 6px 8px; border-radius: 6px; border: 1px solid rgba(99, 102, 241, 0.3);">
+        <input type="text" class="input-field" id="pickerNewFolderName" placeholder="ຊື່ໂຟນເດີໃໝ່..." style="margin-bottom: 0; font-size: 11px; flex: 1;">
+        <button type="button" class="btn-sm btn-start" onclick="confirmPickerNewFolder()" style="padding: 4px 10px;">ສ້າງ</button>
+        <button type="button" class="btn-sm btn-secondary" onclick="togglePickerNewFolder()" style="padding: 4px 8px;">ຍົກເລີກ</button>
+      </div>
+
+      <!-- Directory List (Scrollable) -->
+      <div id="pickerDirList" style="flex: 1; overflow-y: auto; max-height: 240px; min-height: 160px; background: rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.08); border-radius: 8px; padding: 6px;">
+        <!-- Items inserted by JS -->
+      </div>
+
+      <!-- Footer -->
+      <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 10px; gap: 8px; flex-wrap: wrap;">
+        <div style="font-size: 11px; color: #38bdf8; font-family: monospace; max-width: 250px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" id="pickerSelectedPreview">
+          ...
+        </div>
+        <div style="display: flex; gap: 6px;">
+          <button type="button" class="btn btn-secondary" style="padding: 6px 12px; font-size: 12px;" onclick="closeFolderPickerModal()">ຍົກເລີກ</button>
+          <button type="button" class="btn btn-start" style="padding: 6px 14px; font-size: 12px;" onclick="confirmFolderPickerSelection()">✅ ເລືອກໂຟນເດີນີ້</button>
+        </div>
       </div>
     </div>
   </div>
@@ -1529,6 +1640,26 @@ MOBILE_UI_HTML = """<!DOCTYPE html>
       }
     }, 1000);
 
+    async function togglePipelinePickMode(pageId, currentMode) {
+      const nextMode = (currentMode === 'random') ? 'sequential' : 'random';
+      try {
+        const res = await fetch('/api/action/update_pipeline_page_pick_mode', {
+          method: 'POST',
+          headers: getAuthHeaders(),
+          body: JSON.stringify({ page_id: pageId, pick_mode: nextMode })
+        });
+        if (res.status === 401) { lockApp(); return; }
+        const json = await res.json();
+        if (json.success) {
+          fetchState();
+        } else {
+          alert('ຜິດພາດ: ' + (json.message || 'ບໍ່ສາມາດປ່ຽນໂໝດໄດ້'));
+        }
+      } catch (e) {
+        alert('ຜິດພາດ: ' + e);
+      }
+    }
+
     async function togglePipelinePage(pageId) {
       try {
         const res = await fetch('/api/action/toggle_pipeline_page', {
@@ -1584,19 +1715,26 @@ MOBILE_UI_HTML = """<!DOCTYPE html>
               <div style="font-weight: 800; font-size: 13px; color: ${isEnabled ? '#fff' : '#64748b'};">
                 ${isActive ? '⚡ ' : ''}${p.page_name || 'Page ' + (pIdx+1)}
               </div>
-              <div style="display: flex; gap: 4px;">
-                <span style="font-size: 10px; background: #1c2236; padding: 2px 7px; border-radius: 10px; color: ${modeColor}; font-weight: 700;">${modeBadge}</span>
+              <div style="display: flex; gap: 4px; align-items: center;">
+                <button class="btn-sm" style="font-size: 10px; background: #1c2236; border: 1px solid ${modeColor}; padding: 2px 8px; border-radius: 10px; color: ${modeColor}; font-weight: 700; cursor: pointer; display: inline-flex; align-items: center; gap: 3px;" onclick="togglePipelinePickMode('${p.page_id}', '${p.pick_mode || 'random'}')" title="ກົດເພື່ອປ່ຽນໂໝດ (ສຸ່ມ ↔ ຕາມລຳດັບ)">
+                  ${modeBadge} 🔄
+                </button>
                 <span style="font-size: 10px; background: #1c2236; padding: 2px 7px; border-radius: 10px; color: #f59e0b; font-weight: 700;">${catName}</span>
               </div>
             </div>
-            <div style="font-size: 11px; color: var(--text-muted); margin: 3px 0;">
-              ID: <span style="color: #cbd5e1; font-weight: 600;">${p.page_id || '(ຍັງບໍ່ມີ)'}</span> | ໂຟນເດີ: <span style="color: #94a3b8;">${p.video_folder || '-'}</span>
+            <div style="font-size: 11px; color: var(--text-muted); margin: 4px 0; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 4px;">
+              <div>ID: <span style="color: #cbd5e1; font-weight: 600;">${p.page_id || '(ຍັງບໍ່ມີ)'}</span> | ໂຟນເດີ: <span style="color: #38bdf8; font-weight: 600;">${escapeHtml(p.video_folder || '-')}</span></div>
+              <button class="btn-sm" style="background: rgba(56, 189, 248, 0.15); border: 1px solid #38bdf8; color: #38bdf8; padding: 2px 8px; font-size: 11px; font-weight: bold; cursor: pointer; border-radius: 5px; display: inline-flex; align-items: center; gap: 3px;" onclick="openPipelineFolderPicker('${p.page_id}', '${escapeJs(p.page_name)}', '${escapeJs(p.video_folder || '')}')" title="ເລືອກໂຟນເດີວິດີໂອສຳລັບ Page ນີ້">📁 Browse...</button>
             </div>
             <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 8px; padding-top: 6px; border-top: 1px solid #1c2236;">
               <span style="font-size: 11px; font-weight: 700; color: ${isEnabled ? '#10b981' : '#64748b'};">
                 ${isEnabled ? '🟢 ເປີດໃຊ້ງານ' : '⚪ ປິດໄວ້'}
               </span>
-              <div class="page-actions" style="gap: 5px;">
+              <div class="page-actions" style="gap: 5px; display: flex; align-items: center; flex-wrap: wrap;">
+                <button class="btn-sm" style="background: rgba(${isRand ? '192, 132, 252' : '56, 189, 248'}, 0.18); border: 1px solid ${isRand ? '#c084fc' : '#38bdf8'}; color: ${isRand ? '#c084fc' : '#38bdf8'}; padding: 3px 8px; font-size: 11px; font-weight: bold; cursor: pointer; border-radius: 5px; display: inline-flex; align-items: center; gap: 3px;" onclick="togglePipelinePickMode('${p.page_id}', '${p.pick_mode || 'random'}')" title="ກົດເພື່ອປ່ຽນໂໝດ ສຸ່ມ / ຕາມລຳດັບ">
+                  ${isRand ? '🔢 ປ່ຽນເປັນ: ຕາມລຳດັບ' : '🎲 ປ່ຽນເປັນ: ສຸ່ມ'}
+                </button>
+                <button class="btn-sm" style="background: rgba(99, 102, 241, 0.2); border: 1px solid rgba(99, 102, 241, 0.4); color: #818cf8; padding: 3px 8px; font-size: 11px;" onclick="openPipelineFolderPicker('${p.page_id}', '${escapeJs(p.page_name)}', '${escapeJs(p.video_folder || '')}')" title="ປ່ຽນໂຟນເດີ">📁 ປ່ຽນໂຟນເດີ</button>
                 <button class="btn-sm btn-secondary" onclick="togglePipelinePage('${p.page_id}')" title="ເປີດ/ປິດ">${isEnabled ? '⏸️ ປິດ' : '▶️ ເປີດ'}</button>
                 <button class="btn-sm" style="background: #ef4444; color: white;" onclick="deletePipelinePage('${p.page_id}', '${escapeJs(p.page_name)}')" title="ລຶບ Page">🗑️ ລຶບ</button>
               </div>
@@ -1811,9 +1949,10 @@ MOBILE_UI_HTML = """<!DOCTYPE html>
     }
 
     async function submitAddPage() {
-      const gId = document.getElementById('addPageGroupSelect').value;
+      const gId = document.getElementById('addPageGroupSelect') ? document.getElementById('addPageGroupSelect').value : '';
       const pName = document.getElementById('addPageNameInput').value.trim();
       const pId = document.getElementById('addPageIdInput').value.trim();
+      const vFolder = document.getElementById('addPageFolderInput') ? document.getElementById('addPageFolderInput').value.trim() : '';
 
       if (!pName) {
         alert('ກະລຸນາໃສ່ຊື່ Page');
@@ -1824,11 +1963,18 @@ MOBILE_UI_HTML = """<!DOCTYPE html>
         return;
       }
 
+      const isPipeline = gLastData && gLastData.pages_pipeline && gLastData.pages_pipeline.length > 0;
+      const endpoint = isPipeline ? '/api/action/add_pipeline_page' : '/api/action/add_page';
+      const pickMode = document.getElementById('addPagePickMode') ? document.getElementById('addPagePickMode').value : 'random';
+      const payload = isPipeline 
+        ? { page_name: pName, page_id: pId, video_folder: vFolder, pick_mode: pickMode }
+        : { group_id: gId, page_name: pName, page_id: pId, video_folder: vFolder, pick_mode: pickMode };
+
       try {
-        const res = await fetch('/api/action/add_page', {
+        const res = await fetch(endpoint, {
           method: 'POST',
           headers: getAuthHeaders(),
-          body: JSON.stringify({ group_id: gId, page_name: pName, page_id: pId })
+          body: JSON.stringify(payload)
         });
         if (res.status === 401) { lockApp(); return; }
         const json = await res.json();
@@ -1877,6 +2023,12 @@ MOBILE_UI_HTML = """<!DOCTYPE html>
       if (gSettingsLoaded && !force) return;
       const c = gLastData.config_summary;
 
+      if (document.getElementById('cfgPacingMode')) document.getElementById('cfgPacingMode').value = c.pacing_mode || 'two_tier';
+      if (document.getElementById('cfgInterPageMin')) document.getElementById('cfgInterPageMin').value = c.inter_page_delay_min_minutes || 3;
+      if (document.getElementById('cfgInterPageMax')) document.getElementById('cfgInterPageMax').value = c.inter_page_delay_max_minutes || 5;
+      if (document.getElementById('cfgRoundCooldownMin')) document.getElementById('cfgRoundCooldownMin').value = c.round_cooldown_min_hours || 2.0;
+      if (document.getElementById('cfgRoundCooldownMax')) document.getElementById('cfgRoundCooldownMax').value = c.round_cooldown_max_hours || 2.5;
+
       document.getElementById('cfgRandomDelay').checked = !!c.randomize_delay;
       document.getElementById('cfgMinDelay').value = c.delay_min_minutes || 60;
       document.getElementById('cfgMaxDelay').value = c.delay_max_minutes || 120;
@@ -1906,6 +2058,11 @@ MOBILE_UI_HTML = """<!DOCTYPE html>
       const tagsList = hashtagsRaw.split(String.fromCharCode(10)).flatMap(line => line.split(",")).map(t => t.trim()).filter(Boolean);
 
       const payload = {
+        pacing_mode: document.getElementById('cfgPacingMode') ? document.getElementById('cfgPacingMode').value : 'two_tier',
+        inter_page_delay_min_minutes: document.getElementById('cfgInterPageMin') ? parseFloat(document.getElementById('cfgInterPageMin').value) || 3 : 3,
+        inter_page_delay_max_minutes: document.getElementById('cfgInterPageMax') ? parseFloat(document.getElementById('cfgInterPageMax').value) || 5 : 5,
+        round_cooldown_min_hours: document.getElementById('cfgRoundCooldownMin') ? parseFloat(document.getElementById('cfgRoundCooldownMin').value) || 2.0 : 2.0,
+        round_cooldown_max_hours: document.getElementById('cfgRoundCooldownMax') ? parseFloat(document.getElementById('cfgRoundCooldownMax').value) || 2.5 : 2.5,
         randomize_delay: document.getElementById('cfgRandomDelay').checked,
         delay_min_minutes: parseFloat(document.getElementById('cfgMinDelay').value) || 60,
         delay_max_minutes: parseFloat(document.getElementById('cfgMaxDelay').value) || 120,
@@ -1935,6 +2092,200 @@ MOBILE_UI_HTML = """<!DOCTYPE html>
         if (res.status === 401) { lockApp(); return; }
         const json = await res.json();
         alert(json.message || '💾 ບັນທຶກການຕັ້ງຄ່າລົງ Bot ສຳເລັດແລ້ວ!');
+        fetchState();
+      } catch (e) {
+        alert('ຜິດພາດ: ' + e);
+      }
+    }
+
+    // --- Directory Picker / Folder Browser Logic ---
+    let gPickerTargetPageId = null;
+    let gPickerCurrentPath = '';
+    let gPickerSelectedPath = '';
+    let gPickerParentPath = null;
+
+    function openPipelineFolderPicker(pageId, pageName, currentFolder) {
+      gPickerTargetPageId = pageId;
+      const titleEl = document.getElementById('folderPickerTitle');
+      if (titleEl) {
+        if (pageId === 'new_page') {
+          titleEl.innerText = '📁 ເລືອກໂຟນເດີສຳລັບ Page ໃໝ່';
+        } else {
+          titleEl.innerText = '📁 ເລືອກໂຟນເດີ: ' + (pageName || pageId);
+        }
+      }
+      
+      const modal = document.getElementById('folderPickerModal');
+      if (modal) modal.style.display = 'flex';
+
+      const initialPath = currentFolder || (document.getElementById('pickerCurrentPath') ? document.getElementById('pickerCurrentPath').value : '') || '';
+      loadPickerDirectory(initialPath);
+    }
+
+    function closeFolderPickerModal() {
+      const modal = document.getElementById('folderPickerModal');
+      if (modal) modal.style.display = 'none';
+      const newFolderRow = document.getElementById('pickerNewFolderRow');
+      if (newFolderRow) newFolderRow.style.display = 'none';
+    }
+
+    async function loadPickerDirectory(targetPath) {
+      const dirListEl = document.getElementById('pickerDirList');
+      if (dirListEl) {
+        dirListEl.innerHTML = '<div style="color: var(--text-muted); font-size: 11px; padding: 14px; text-align: center;">⏳ ກຳລັງໂຫຼດໂຟນເດີ...</div>';
+      }
+
+      try {
+        const url = '/api/fs/directories?path=' + encodeURIComponent(targetPath || '');
+        const res = await fetch(url, { headers: getAuthHeaders() });
+        if (res.status === 401) { lockApp(); return; }
+        const data = await res.json();
+        
+        if (!data.success) {
+          if (dirListEl) dirListEl.innerHTML = '<div style="color: #ef4444; font-size: 11px; padding: 10px;">❌ ' + escapeHtml(data.message || 'ບໍ່ສາມາດໂຫຼດໂຟນເດີໄດ້') + '</div>';
+          return;
+        }
+
+        gPickerCurrentPath = data.current_path;
+        gPickerParentPath = data.parent_path;
+        gPickerSelectedPath = data.current_path;
+
+        const pathInput = document.getElementById('pickerCurrentPath');
+        if (pathInput) pathInput.value = data.current_path;
+
+        const previewEl = document.getElementById('pickerSelectedPreview');
+        if (previewEl) previewEl.innerText = 'ເລືອກ: ' + data.current_path;
+
+        const upBtn = document.getElementById('pickerUpBtn');
+        if (upBtn) upBtn.disabled = !data.parent_path;
+
+        // Render Quick Presets
+        const presetsEl = document.getElementById('pickerPresetsList');
+        if (presetsEl && data.presets) {
+          presetsEl.innerHTML = data.presets.map(ps => `
+            <button type="button" class="btn-sm" style="background: rgba(56, 189, 248, 0.12); border: 1px solid rgba(56, 189, 248, 0.3); color: #38bdf8; font-size: 10px; padding: 3px 8px; border-radius: 6px; cursor: pointer;" onclick="loadPickerDirectory('${escapeJs(ps.path)}')">
+              📂 ${escapeHtml(ps.name)}
+            </button>
+          `).join('');
+        }
+
+        // Render Directory List
+        if (dirListEl) {
+          let listHtml = '';
+          if (data.parent_path) {
+            listHtml += `
+              <div onclick="navigatePickerUp()" style="display: flex; align-items: center; gap: 8px; padding: 7px 10px; border-radius: 6px; cursor: pointer; color: #94a3b8; font-size: 12px; border-bottom: 1px solid rgba(255,255,255,0.05);">
+                <span>📁 .. (ຂຶ້ນ 1 ຂັ້ນ)</span>
+              </div>
+            `;
+          }
+
+          if (!data.directories || data.directories.length === 0) {
+            listHtml += '<div style="color: var(--text-muted); font-size: 11px; padding: 12px; text-align: center;">(ບໍ່ມີໂຟນເດີຍ່ອຍໃນນີ້ - ທ່ານສາມາດກົດ "ເລືອກໂຟນເດີນີ້" ໄດ້ເລີຍ)</div>';
+          } else {
+            data.directories.forEach(d => {
+              listHtml += `
+                <div style="display: flex; align-items: center; justify-content: space-between; padding: 6px 10px; border-radius: 6px; margin-bottom: 3px; cursor: pointer; transition: all 0.15s; background: rgba(255,255,255,0.02);">
+                  <div onclick="selectPickerPath('${escapeJs(d.path)}')" style="display: flex; align-items: center; gap: 8px; flex: 1; overflow: hidden;">
+                    <span style="font-size: 14px;">📁</span>
+                    <span style="font-size: 12px; color: #f1f5f9; font-weight: 500; text-overflow: ellipsis; overflow: hidden; white-space: nowrap;">${escapeHtml(d.name)}</span>
+                  </div>
+                  <div style="display: flex; gap: 4px;">
+                    <button type="button" class="btn-sm" style="background: rgba(56, 189, 248, 0.2); color: #38bdf8; font-size: 10px; padding: 2px 7px; border: 1px solid rgba(56, 189, 248, 0.4); border-radius: 4px;" onclick="selectPickerPath('${escapeJs(d.path)}'); confirmFolderPickerSelection();" title="ເລືອກໂຟນເດີນີ້">ເລືອກ</button>
+                    <button type="button" class="btn-sm btn-secondary" style="font-size: 10px; padding: 2px 7px;" onclick="loadPickerDirectory('${escapeJs(d.path)}')" title="ເຂົ້າໄປເບິ່ງຂ້າງໃນ">ເຂົ້າໄປ ➔</button>
+                  </div>
+                </div>
+              `;
+            });
+          }
+          dirListEl.innerHTML = listHtml;
+        }
+
+      } catch (err) {
+        if (dirListEl) dirListEl.innerHTML = '<div style="color: #ef4444; font-size: 11px; padding: 10px;">❌ ຜິດພາດ: ' + escapeHtml(String(err)) + '</div>';
+      }
+    }
+
+    function selectPickerPath(path) {
+      gPickerSelectedPath = path;
+      const previewEl = document.getElementById('pickerSelectedPreview');
+      if (previewEl) previewEl.innerText = 'ເລືອກ: ' + path;
+    }
+
+    function navigatePickerUp() {
+      if (gPickerParentPath) {
+        loadPickerDirectory(gPickerParentPath);
+      }
+    }
+
+    function togglePickerNewFolder() {
+      const row = document.getElementById('pickerNewFolderRow');
+      if (row) {
+        row.style.display = row.style.display === 'none' ? 'flex' : 'none';
+        if (row.style.display === 'flex') {
+          const inp = document.getElementById('pickerNewFolderName');
+          if (inp) { inp.value = ''; inp.focus(); }
+        }
+      }
+    }
+
+    async function confirmPickerNewFolder() {
+      const inp = document.getElementById('pickerNewFolderName');
+      const name = inp ? inp.value.trim() : '';
+      if (!name) {
+        alert('ກະລຸນາໃສ່ຊື່ໂຟນເດີໃໝ່');
+        return;
+      }
+      try {
+        const res = await fetch('/api/fs/create-directory', {
+          method: 'POST',
+          headers: getAuthHeaders(),
+          body: JSON.stringify({ parent_path: gPickerCurrentPath, folder_name: name })
+        });
+        if (res.status === 401) { lockApp(); return; }
+        const json = await res.json();
+        if (json.success) {
+          togglePickerNewFolder();
+          loadPickerDirectory(json.path);
+        } else {
+          alert(json.message || 'ບໍ່ສາມາດສ້າງໂຟນເດີໄດ້');
+        }
+      } catch (e) {
+        alert('ຜິດພາດ: ' + e);
+      }
+    }
+
+    async function confirmFolderPickerSelection() {
+      if (!gPickerSelectedPath) {
+        alert('ກະລຸນາເລືອກໂຟນເດີກ່ອນ');
+        return;
+      }
+
+      if (gPickerTargetPageId === 'new_page') {
+        const addFolderInp = document.getElementById('addPageFolderInput');
+        if (addFolderInp) addFolderInp.value = gPickerSelectedPath;
+        closeFolderPickerModal();
+        return;
+      }
+
+      if (!gPickerTargetPageId) {
+        closeFolderPickerModal();
+        return;
+      }
+
+      try {
+        const res = await fetch('/api/action/update_pipeline_page_folder', {
+          method: 'POST',
+          headers: getAuthHeaders(),
+          body: JSON.stringify({
+            page_id: gPickerTargetPageId,
+            video_folder: gPickerSelectedPath
+          })
+        });
+        if (res.status === 401) { lockApp(); return; }
+        const json = await res.json();
+        alert(json.message || '✅ ປ່ຽນໂຟນເດີສຳເລັດແລ້ວ');
+        closeFolderPickerModal();
         fetchState();
       } catch (e) {
         alert('ຜິດພາດ: ' + e);
@@ -2196,6 +2547,36 @@ def api_action(action_name: str):
         except Exception as e:
             return jsonify({"success": False, "message": f"ຜິດພາດ: {e}"}), 500
 
+    elif action_clean == "update_pipeline_page_folder":
+        raw_id = str(payload.get("page_id", "")).strip()
+        clean_id = re.sub(r'[^0-9]', '', raw_id)
+        v_folder = str(payload.get("video_folder", "")).strip()
+        if not clean_id:
+            return jsonify({"success": False, "message": "❌ Page ID ບໍ່ຖືກຕ້ອງ"}), 400
+        if not v_folder:
+            return jsonify({"success": False, "message": "❌ ກະລຸນາເລືອກໂຟນເດີ"}), 400
+        try:
+            with open(cfg_path, "r", encoding="utf-8") as f:
+                c = json.load(f)
+            updated = False
+            for p in c.get("pages_pipeline", []):
+                if str(p.get("page_id", "")).strip() == clean_id:
+                    p["video_folder"] = v_folder
+                    updated = True
+                    break
+            if updated:
+                with open(cfg_path, "w", encoding="utf-8") as f:
+                    json.dump(c, f, ensure_ascii=False, indent=2)
+                if ACTION_CALLBACK:
+                    try:
+                        ACTION_CALLBACK("update_pipeline_page_folder", payload)
+                    except Exception:
+                        pass
+                return jsonify({"success": True, "message": f"✅ ປ່ຽນໂຟນເດີເປັນ '{v_folder}' ສຳເລັດ!"})
+            return jsonify({"success": False, "message": "ບໍ່ພົບ Page ໃນ Pipeline"}), 404
+        except Exception as e:
+            return jsonify({"success": False, "message": f"ຜິດພາດ: {e}"}), 500
+
     elif action_clean == "toggle_pipeline_page":
         raw_id = str(payload.get("page_id", "")).strip()
         clean_id = re.sub(r'[^0-9]', '', raw_id)
@@ -2214,6 +2595,40 @@ def api_action(action_name: str):
                 except Exception:
                     pass
             return jsonify({"success": True, "message": "🔄 ສະຫຼັບສະຖານະ Page ສຳເລັດ"})
+        except Exception as e:
+            return jsonify({"success": False, "message": f"ຜິດພາດ: {e}"}), 500
+
+    elif action_clean in ["update_pipeline_page_pick_mode", "toggle_pipeline_page_pick_mode"]:
+        raw_id = str(payload.get("page_id", "")).strip()
+        clean_id = re.sub(r'[^0-9]', '', raw_id)
+        desired_mode = str(payload.get("pick_mode", "")).strip().lower()
+        if not clean_id:
+            return jsonify({"success": False, "message": "❌ Page ID ບໍ່ຖືກຕ້ອງ"}), 400
+        try:
+            with open(cfg_path, "r", encoding="utf-8") as f:
+                c = json.load(f)
+            updated = False
+            new_mode = "random"
+            for p in c.get("pages_pipeline", []):
+                if str(p.get("page_id", "")).strip() == clean_id:
+                    if desired_mode in ["random", "sequential"]:
+                        p["pick_mode"] = desired_mode
+                    else:
+                        p["pick_mode"] = "sequential" if p.get("pick_mode", "random") == "random" else "random"
+                    new_mode = p["pick_mode"]
+                    updated = True
+                    break
+            if updated:
+                with open(cfg_path, "w", encoding="utf-8") as f:
+                    json.dump(c, f, ensure_ascii=False, indent=2)
+                if ACTION_CALLBACK:
+                    try:
+                        ACTION_CALLBACK("update_pipeline_page_pick_mode", {"page_id": clean_id, "pick_mode": new_mode})
+                    except Exception:
+                        pass
+                mode_label = "🔢 ຕາມລຳດັບ (Sequential)" if new_mode == "sequential" else "🎲 ສຸ່ມ (Random)"
+                return jsonify({"success": True, "message": f"✅ ປ່ຽນໂໝດເປັນ '{mode_label}' ສຳເລັດ!", "pick_mode": new_mode})
+            return jsonify({"success": False, "message": "ບໍ່ພົບ Page ໃນ Pipeline"}), 404
         except Exception as e:
             return jsonify({"success": False, "message": f"ຜິດພາດ: {e}"}), 500
 
@@ -2283,6 +2698,117 @@ def api_action(action_name: str):
 
     return jsonify({"success": True, "message": msg})
 
+
+@app.route("/api/fs/directories")
+def api_fs_directories():
+    if not verify_auth(request):
+        return jsonify({"error": "Unauthorized", "require_pin": True}), 401
+    
+    path = request.args.get("path", "").strip()
+    
+    reels_dir = "/home/moes/storage/Reels" if sys.platform != "win32" else r"Z:\Reels"
+    if not os.path.exists(reels_dir):
+        if os.path.exists(r"Z:\Reels"):
+            reels_dir = r"Z:\Reels"
+        elif os.path.exists("/home/moes/storage/Reels"):
+            reels_dir = "/home/moes/storage/Reels"
+        else:
+            reels_dir = os.path.expanduser("~")
+
+    if not path:
+        cur_path = reels_dir
+    else:
+        if sys.platform != "win32":
+            if path.lower().startswith("z:\\") or path.lower().startswith("z:/"):
+                sub = path[3:].replace("\\", "/")
+                cur_path = f"/home/moes/storage/{sub.lstrip('/')}"
+            else:
+                cur_path = path
+        else:
+            if path.startswith("/home/moes/storage/"):
+                sub = path[len("/home/moes/storage/"):].replace("/", "\\")
+                cur_path = f"Z:\\{sub}"
+            else:
+                cur_path = path
+
+    cur_path = os.path.abspath(cur_path)
+    if not os.path.exists(cur_path):
+        cur_path = reels_dir
+
+    subdirs = []
+    try:
+        for entry in sorted(os.listdir(cur_path), key=lambda s: s.lower()):
+            if entry.startswith("."):
+                continue
+            full_sub = os.path.join(cur_path, entry)
+            try:
+                if os.path.isdir(full_sub):
+                    subdirs.append({
+                        "name": entry,
+                        "path": full_sub.replace("\\", "/") if sys.platform != "win32" else full_sub
+                    })
+            except (PermissionError, OSError):
+                continue
+    except Exception as ex:
+        pass
+
+    parent_dir = os.path.dirname(cur_path)
+    if parent_dir == cur_path:
+        parent_dir = None
+
+    presets = []
+    seen = set()
+    known = [
+        ("Movies FB (ຊີຣີຈີນ)", "/home/moes/storage/Reels/Movies FB" if sys.platform != "win32" else r"Z:\Reels\Movies FB"),
+        ("Movies FB Dedicated (ສາວລາວ)", "/home/moes/storage/Reels/Movies FB Dedicated" if sys.platform != "win32" else r"Z:\Reels\Movies FB Dedicated"),
+    ]
+    for n, p in known:
+        if os.path.exists(p):
+            presets.append({"name": n, "path": p.replace("\\", "/") if sys.platform != "win32" else p})
+            seen.add(p)
+
+    if os.path.exists(reels_dir) and os.path.isdir(reels_dir):
+        try:
+            for entry in sorted(os.listdir(reels_dir)):
+                if entry.startswith("."):
+                    continue
+                f_path = os.path.join(reels_dir, entry)
+                if os.path.isdir(f_path) and f_path not in seen:
+                    presets.append({"name": entry, "path": f_path.replace("\\", "/") if sys.platform != "win32" else f_path})
+                    seen.add(f_path)
+        except Exception:
+            pass
+
+    return jsonify({
+        "success": True,
+        "current_path": cur_path.replace("\\", "/") if sys.platform != "win32" else cur_path,
+        "parent_path": (parent_dir.replace("\\", "/") if parent_dir else None) if sys.platform != "win32" else parent_dir,
+        "directories": subdirs,
+        "presets": presets
+    })
+
+@app.route("/api/fs/create-directory", methods=["POST"])
+def api_fs_create_directory():
+    if not verify_auth(request):
+        return jsonify({"error": "Unauthorized", "require_pin": True}), 401
+    
+    data = request.get_json(silent=True) or {}
+    parent = str(data.get("parent_path", "")).strip()
+    name = str(data.get("folder_name", "")).strip()
+    if not name or not parent:
+        return jsonify({"success": False, "message": "❌ ກະລຸນາໃສ່ຊື່ໂຟນເດີ"}), 400
+
+    clean_name = re.sub(r'[<>:"/\\|?*]', '_', name).strip()
+    new_path = os.path.join(parent, clean_name)
+    try:
+        os.makedirs(new_path, exist_ok=True)
+        return jsonify({
+            "success": True,
+            "path": new_path.replace("\\", "/") if sys.platform != "win32" else new_path,
+            "name": clean_name
+        })
+    except Exception as e:
+        return jsonify({"success": False, "message": f"❌ ບໍ່ສາມາດສ້າງໂຟນເດີ: {e}"}), 500
 
 @app.route("/qr")
 def qr_code_image():
